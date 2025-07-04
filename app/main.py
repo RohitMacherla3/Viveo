@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 
 app = FastAPI(
-    title="Viveo Backend API",
+    title="Viveo API",
     description="API for the Viveo application",
     version="1.0.0",
 )
@@ -21,6 +21,6 @@ app.include_router(api_router)
 
 
 if __name__ == "__main__":
-    print("Starting the Viveo backend API...")
+    print("Starting the Viveo API...")
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
     

@@ -11,6 +11,9 @@ AI_MODELS = {
         "gpt-4.1": "gpt-4.1-2025-04-14",
         "gpt-4o": "gpt-4o-2024-08-06",
         "gpt-4o-mini": "gpt-4o-mini-2024-07-18",
+    },
+    "ollama": {
+        "llama-3.2": "llama3.2:latest",
     }
 }
 

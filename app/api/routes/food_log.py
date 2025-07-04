@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from app.database.models import User
-from app.api.routes.auth import decode_token
+from app.core.security import Authentication
 from app.config import AI_GLOBAL_CACHE, USER_CACHE_KEY_MAP, FOOD_LOG
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+authenticator = Authentication()
 
-@router.post("/logFood", response_model=str)
-async def log_food(token: str = Depends(oauth2_scheme), food_details: str = None):
-    user = decode_token(token)
+@router.post("/logFoodText", response_model=str)
+async def log_food_text(token: str = Depends(oauth2_scheme), food_details: str = None):
+    user = authenticator.decode_token(token)
     if not user:
         raise HTTPException(
             status_code=401,
