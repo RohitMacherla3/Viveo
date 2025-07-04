@@ -3,4 +3,4 @@ The Caloric App is a next-generation nutrition and fitness tracker, offering AI-
 
 
 ## Backend API
-![alt text](image.png)
+![image](https://github.com/user-attachments/assets/7484f91c-c6e6-41ca-841b-d1ee5f861954)
