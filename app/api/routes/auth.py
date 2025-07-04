@@ -6,8 +6,10 @@ from typing import Optional
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from app.backend.settings import settings
-from app.backend.database.models import User, UserInDB, UserCreate
+from app.settings import settings
+from app.database.models import User, UserInDB, UserCreate
+import uuid
+import app.config as config
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -78,6 +80,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = create_access_token(data={"sub": user.username})
+    config.USER_CACHE_KEY_MAP[form_data.username] = generate_cache_key(form_data.username)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -105,3 +108,10 @@ async def signup(user_data: UserCreate):
     )
     fake_users_db[user_data.username] = user
     return user
+
+
+def generate_cache_key(user: str) -> str:
+    """
+    Generate a unique cache key for the conversation.
+    """
+    return str(uuid.uuid4())

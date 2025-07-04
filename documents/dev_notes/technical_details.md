@@ -83,7 +83,7 @@ caloric_app/
 4. Docker + Compose
 5. Pytest (unit testing)
 
-# Frontend (pick one):
+# Frontend:
 React Native + Expo + Expo Router
     Expo + Expo Router allows to build for:
 

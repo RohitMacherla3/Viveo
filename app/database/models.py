@@ -17,3 +17,7 @@ class User(BaseModel):
 # User in database model
 class UserInDB(User):
     hashed_password: str
+    
+## AI Response Model
+class AIResponse(BaseModel):
+    response: str
