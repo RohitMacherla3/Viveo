@@ -124,11 +124,6 @@ INSERT IGNORE INTO users (
     false
 );
 
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_food_entries_user_date ON food_entries(user_id, entry_date);
-CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login);
-CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id);
-
 -- Create a view for user statistics
 CREATE OR REPLACE VIEW user_stats AS
 SELECT 

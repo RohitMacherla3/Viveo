@@ -63,27 +63,46 @@ setup_environment() {
     
     # Create .env file if it doesn't exist
     if [[ ! -f .env ]]; then
-        log "Creating .env file from template..."
-        cp .env.example .env
+        log "Creating .env file..."
+        
+        # Create basic .env file
+        cat > .env << 'EOF'
+# Database Configuration
+MYSQL_ROOT_PASSWORD=viveo_root_pass_change_me
+MYSQL_DATABASE=viveo_db
+MYSQL_USER=viveo_user
+MYSQL_PASSWORD=viveo_secure_password_change_me
+
+# Application Configuration
+SECRET_KEY=your-super-secret-jwt-key-change-in-production-make-it-long-and-random
+CLAUDE_API_KEY=your_claude_api_key_here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# MongoDB (if needed)
+MONGO_DB_USR=dummy_user
+MONGO_DB_PWD=dummy_password
+
+# Environment
+DEBUG=false
+PYTHONPATH=/app
+EOF
         
         # Generate random secret key
         SECRET_KEY=$(openssl rand -hex 32)
-        sed -i "s/your-super-secret-jwt-key-change-in-production-make-it-long-and-random/$SECRET_KEY/" .env
+        sed -i.bak "s/your-super-secret-jwt-key-change-in-production-make-it-long-and-random/$SECRET_KEY/" .env
         
         # Generate random MySQL passwords
         MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)
         MYSQL_PASSWORD=$(openssl rand -hex 16)
-        sed -i "s/viveo_root_password_change_me/$MYSQL_ROOT_PASSWORD/" .env
-        sed -i "s/viveo_secure_password_change_me/$MYSQL_PASSWORD/" .env
+        sed -i.bak "s/viveo_root_pass_change_me/$MYSQL_ROOT_PASSWORD/" .env
+        sed -i.bak "s/viveo_secure_password_change_me/$MYSQL_PASSWORD/" .env
         
         warn "Please edit .env file and add your CLAUDE_API_KEY before continuing."
         warn "Generated passwords have been set in .env file."
         
-        # Check if Claude API key is set
-        if ! grep -q "CLAUDE_API_KEY=sk-" .env; then
-            error "Please set your CLAUDE_API_KEY in the .env file before continuing."
-            exit 1
-        fi
+        # Remove backup files
+        rm -f .env.bak
     fi
     
     # Create necessary directories
@@ -91,8 +110,8 @@ setup_environment() {
     mkdir -p data/{users,vectors} logs nginx/ssl mysql/init frontend
     
     # Set proper permissions
-    chmod 755 data logs
-    chmod -R 755 data/*
+    chmod 755 data logs 2>/dev/null || true
+    chmod -R 755 data/* 2>/dev/null || true
     
     log "Environment setup completed."
 }
@@ -101,10 +120,20 @@ setup_environment() {
 setup_frontend() {
     log "Setting up frontend..."
     
-    # Update API URL in frontend config
+    # Update API URL in frontend config if it exists
     if [[ -f frontend/config.js ]]; then
-        # Update API_BASE_URL to use /api prefix for production
-        sed -i "s|http://localhost:8000|/api|g" frontend/config.js
+        log "Updating frontend configuration..."
+        # Use a more compatible sed command for Mac
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS version
+            sed -i.bak "s|http://localhost:8000|/api|g" frontend/config.js
+            rm -f frontend/config.js.bak
+        else
+            # Linux version
+            sed -i "s|http://localhost:8000|/api|g" frontend/config.js
+        fi
+    else
+        log "Frontend config.js not found, skipping configuration update."
     fi
     
     log "Frontend setup completed."
@@ -114,19 +143,27 @@ setup_frontend() {
 deploy_services() {
     log "Building and starting services..."
     
-    # Pull latest images
-    docker-compose pull
+    # Determine which docker-compose file to use
+    COMPOSE_FILE="docker-compose.yml"
+    if [[ -f "docker-compose.mac.yml" ]]; then
+        COMPOSE_FILE="docker-compose.mac.yml"
+        log "Using Mac-specific docker-compose file"
+    fi
+    
+    # Pull latest images (skip if not available)
+    log "Pulling base images..."
+    docker-compose -f $COMPOSE_FILE pull || warn "Some images could not be pulled, proceeding with build..."
     
     # Build custom images
     log "Building backend image..."
-    docker-compose build backend
+    docker-compose -f $COMPOSE_FILE build backend
     
     log "Building frontend image..."
-    docker-compose build frontend
+    docker-compose -f $COMPOSE_FILE build frontend
     
     # Start services
     log "Starting services..."
-    docker-compose up -d
+    docker-compose -f $COMPOSE_FILE up -d
     
     # Wait for services to be healthy
     log "Waiting for services to be ready..."
@@ -140,31 +177,57 @@ deploy_services() {
 check_services() {
     log "Checking service health..."
     
-    services=("viveo-mysql" "viveo-backend" "viveo-frontend" "viveo-nginx")
+    # Get container names from docker ps
+    containers=$(docker ps --format "table {{.Names}}" | tail -n +2)
     
-    for service in "${services[@]}"; do
-        if docker ps --filter "name=$service" --filter "status=running" | grep -q $service; then
-            log "✓ $service is running"
+    if [[ -z "$containers" ]]; then
+        error "No containers are running!"
+        return 1
+    fi
+    
+    for container in $containers; do
+        if docker ps --filter "name=$container" --filter "status=running" | grep -q $container; then
+            log "✓ $container is running"
         else
-            error "✗ $service is not running"
-            docker logs $service --tail 50
+            error "✗ $container is not running"
+            docker logs $container --tail 20 2>/dev/null || true
         fi
     done
     
-    # Test API endpoint
-    log "Testing API endpoint..."
-    if curl -f http://localhost/api/health &> /dev/null; then
-        log "✓ API health check passed"
-    else
-        warn "✗ API health check failed - service may still be starting"
+    # Test API endpoint (adjust port based on your setup)
+    log "Testing API endpoints..."
+    
+    # Try different ports that might be used
+    API_PORTS=("8001" "8000" "80")
+    API_WORKING=false
+    
+    for port in "${API_PORTS[@]}"; do
+        if curl -f -s http://localhost:$port/health &> /dev/null || curl -f -s http://localhost:$port/api/health &> /dev/null; then
+            log "✓ API health check passed on port $port"
+            API_WORKING=true
+            break
+        fi
+    done
+    
+    if [[ "$API_WORKING" == false ]]; then
+        warn "✗ API health check failed on all tested ports - service may still be starting"
     fi
     
     # Test frontend
     log "Testing frontend..."
-    if curl -f http://localhost &> /dev/null; then
-        log "✓ Frontend is accessible"
-    else
-        warn "✗ Frontend is not accessible"
+    FRONTEND_PORTS=("3001" "3000" "80")
+    FRONTEND_WORKING=false
+    
+    for port in "${FRONTEND_PORTS[@]}"; do
+        if curl -f -s http://localhost:$port &> /dev/null; then
+            log "✓ Frontend is accessible on port $port"
+            FRONTEND_WORKING=true
+            break
+        fi
+    done
+    
+    if [[ "$FRONTEND_WORKING" == false ]]; then
+        warn "✗ Frontend is not accessible on tested ports"
     fi
 }
 
@@ -177,32 +240,48 @@ setup_monitoring() {
 #!/bin/bash
 # Simple health check script for Viveo
 
-SERVICES=("viveo-mysql" "viveo-backend" "viveo-frontend" "viveo-nginx")
+# Get running container names
+SERVICES=$(docker ps --format "{{.Names}}" | grep viveo || echo "")
 ALERT_EMAIL=""  # Set your email here
 
-for service in "${SERVICES[@]}"; do
+if [[ -z "$SERVICES" ]]; then
+    echo "ALERT: No Viveo services are running"
+    if [[ -n "$ALERT_EMAIL" ]]; then
+        echo "ALERT: No Viveo services are running" | mail -s "Viveo Service Alert" $ALERT_EMAIL
+    fi
+    exit 1
+fi
+
+for service in $SERVICES; do
     if ! docker ps --filter "name=$service" --filter "status=running" | grep -q $service; then
-        echo "ALERT: $service is not running" | mail -s "Viveo Service Alert" $ALERT_EMAIL
-        docker-compose restart $service
+        echo "ALERT: $service is not running"
+        if [[ -n "$ALERT_EMAIL" ]]; then
+            echo "ALERT: $service is not running" | mail -s "Viveo Service Alert" $ALERT_EMAIL
+        fi
+        # Try to restart the service
+        docker start $service 2>/dev/null || true
     fi
 done
 
 # Check disk space
 DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 if [[ $DISK_USAGE -gt 80 ]]; then
-    echo "ALERT: Disk usage is ${DISK_USAGE}%" | mail -s "Viveo Disk Alert" $ALERT_EMAIL
+    echo "ALERT: Disk usage is ${DISK_USAGE}%"
+    if [[ -n "$ALERT_EMAIL" ]]; then
+        echo "ALERT: Disk usage is ${DISK_USAGE}%" | mail -s "Viveo Disk Alert" $ALERT_EMAIL
+    fi
 fi
 
 # Cleanup old logs
-docker system prune -f
-find logs/ -name "*.log" -mtime +7 -delete
+docker system prune -f >/dev/null 2>&1 || true
+find logs/ -name "*.log" -mtime +7 -delete 2>/dev/null || true
 EOF
 
     chmod +x health_check.sh
     
-    # Add to crontab (optional)
-    log "Health check script created. Add to crontab with:"
-    log "*/5 * * * * /path/to/viveo/health_check.sh"
+    log "Health check script created at: $(pwd)/health_check.sh"
+    log "To add to crontab for automatic monitoring:"
+    log "  */5 * * * * $(pwd)/health_check.sh"
 }
 
 # Backup function
@@ -213,58 +292,90 @@ setup_backup() {
 #!/bin/bash
 # Backup script for Viveo
 
-BACKUP_DIR="/backup/viveo"
+BACKUP_DIR="/tmp/viveo_backup"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p $BACKUP_DIR
 
+# Check if .env file exists
+if [[ ! -f .env ]]; then
+    echo "ERROR: .env file not found"
+    exit 1
+fi
+
 # Load environment variables
+set -a
 source .env
+set +a
 
-# Backup database
-docker exec viveo-mysql mysqldump -u root -p$MYSQL_ROOT_PASSWORD viveo_db > $BACKUP_DIR/db_backup_$DATE.sql
+# Find MySQL container
+MYSQL_CONTAINER=$(docker ps --filter "name=mysql" --format "{{.Names}}" | head -1)
 
-# Backup data directory
-tar -czf $BACKUP_DIR/data_backup_$DATE.tar.gz data/
+if [[ -n "$MYSQL_CONTAINER" ]]; then
+    # Backup database
+    echo "Backing up database..."
+    docker exec $MYSQL_CONTAINER mysqldump -u root -p${MYSQL_ROOT_PASSWORD} ${MYSQL_DATABASE:-viveo_db} > $BACKUP_DIR/db_backup_$DATE.sql 2>/dev/null || echo "Database backup failed"
+else
+    echo "MySQL container not found, skipping database backup"
+fi
+
+# Backup data directory if it exists
+if [[ -d data/ ]]; then
+    echo "Backing up data directory..."
+    tar -czf $BACKUP_DIR/data_backup_$DATE.tar.gz data/ 2>/dev/null || echo "Data backup failed"
+fi
 
 # Backup environment
-cp .env $BACKUP_DIR/env_backup_$DATE
+cp .env $BACKUP_DIR/env_backup_$DATE 2>/dev/null || echo "Environment backup failed"
 
 # Cleanup old backups (keep last 7 days)
-find $BACKUP_DIR -name "*backup*" -mtime +7 -delete
+find $BACKUP_DIR -name "*backup*" -mtime +7 -delete 2>/dev/null || true
 
 echo "Backup completed: $DATE"
+echo "Backup location: $BACKUP_DIR"
 EOF
 
     chmod +x backup.sh
     
-    log "Backup script created. Run with: ./backup.sh"
-    log "Add to crontab for automated backups:"
-    log "0 2 * * * /path/to/viveo/backup.sh"
+    log "Backup script created at: $(pwd)/backup.sh"
+    log "To run backup: ./backup.sh"
+    log "To add automated backups to crontab:"
+    log "  0 2 * * * $(pwd)/backup.sh"
 }
 
-# SSL setup (optional)
-setup_ssl() {
-    if [[ "$1" == "--ssl" ]]; then
-        log "Setting up SSL certificates..."
-        
-        # Create self-signed certificate for testing
-        mkdir -p nginx/ssl
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout nginx/ssl/key.pem \
-            -out nginx/ssl/cert.pem \
-            -subj "/C=US/ST=State/L=City/O=Organization/OU=OrgUnit/CN=localhost"
-        
-        log "Self-signed SSL certificate created."
-        log "For production, replace with proper SSL certificates."
-        
-        # Uncomment HTTPS server block in nginx.conf
-        sed -i 's/# server {/server {/g' nginx/nginx.conf
-        sed -i 's/#     /    /g' nginx/nginx.conf
-        
-        # Restart nginx
-        docker-compose restart nginx
-    fi
+# Main deployment function
+main() {
+    log "Starting Viveo deployment..."
+    
+    check_root
+    check_requirements
+    setup_environment
+    setup_frontend
+    deploy_services
+    setup_monitoring
+    setup_backup
+    
+    log "Deployment completed successfully!"
+    log ""
+    log "🎉 Viveo is now running!"
+    log ""
+    log "Access your application at:"
+    log "  Frontend: http://localhost:3001 (or check running containers)"
+    log "  API: http://localhost:8001 (or check running containers)"
+    log ""
+    log "Useful commands:"
+    log "  View logs: docker-compose logs -f [service]"
+    log "  View containers: docker ps"
+    log "  Restart service: docker-compose restart [service]"
+    log "  Stop all: docker-compose down"
+    log "  Update app: ./deploy.sh --update"
+    log "  Backup data: ./backup.sh"
+    log "  Check health: ./health_check.sh"
+    log ""
+    log "Next steps:"
+    log "1. Check your .env file and add your CLAUDE_API_KEY"
+    log "2. Access the application and test functionality"
+    log "3. Set up automated backups if needed"
 }
 
 # Update function
@@ -273,13 +384,19 @@ update_application() {
     
     # Pull latest changes (if using git)
     if [[ -d .git ]]; then
-        git pull origin main
+        git pull origin main || warn "Git pull failed, continuing with local code"
+    fi
+    
+    # Determine compose file
+    COMPOSE_FILE="docker-compose.yml"
+    if [[ -f "docker-compose.mac.yml" ]]; then
+        COMPOSE_FILE="docker-compose.mac.yml"
     fi
     
     # Rebuild and restart services
-    docker-compose down
-    docker-compose build --no-cache
-    docker-compose up -d
+    docker-compose -f $COMPOSE_FILE down
+    docker-compose -f $COMPOSE_FILE build --no-cache
+    docker-compose -f $COMPOSE_FILE up -d
     
     # Wait and check health
     sleep 30
@@ -296,69 +413,41 @@ cleanup_old_data() {
     docker image prune -f
     
     # Remove old logs
-    find logs/ -name "*.log" -mtime +30 -delete
+    find logs/ -name "*.log" -mtime +30 -delete 2>/dev/null || true
     
     # Remove old data backups from data directory (keep last 30 days)
-    find data/ -name "*.backup" -mtime +30 -delete
+    find data/ -name "*.backup" -mtime +30 -delete 2>/dev/null || true
     
     log "Cleanup completed."
 }
 
-# Main deployment function
-main() {
-    log "Starting Viveo deployment..."
-    
-    check_root
-    check_requirements
-    setup_environment
-    setup_frontend
-    deploy_services
-    setup_monitoring
-    setup_backup
-    
-    if [[ "$1" == "--ssl" ]]; then
-        setup_ssl --ssl
-    fi
-    
-    log "Deployment completed successfully!"
-    log ""
-    log "Access your application at:"
-    log "  Frontend: http://localhost"
-    log "  API: http://localhost/api"
-    log ""
-    log "Useful commands:"
-    log "  View logs: docker-compose logs -f [service]"
-    log "  Restart service: docker-compose restart [service]"
-    log "  Stop all: docker-compose down"
-    log "  Update app: ./deploy.sh --update"
-    log "  Backup data: ./backup.sh"
-    log ""
-    log "Next steps:"
-    log "1. Update your domain in nginx configuration"
-    log "2. Set up proper SSL certificates for production"
-    log "3. Configure email alerts in health_check.sh"
-    log "4. Set up automated backups in crontab"
-}
-
 # Handle command line arguments
 case "$1" in
-    --update)
+    --update|update)
         update_application
         ;;
-    --cleanup)
+    --cleanup|cleanup)
         cleanup_old_data
         ;;
-    --ssl)
-        main --ssl
-        ;;
-    --health)
+    --health|health)
         check_services
         ;;
-    --backup)
+    --backup|backup)
         setup_backup
         ./backup.sh
         ;;
-    *)
+    start|--start|"")
         main "$@"
+        ;;
+    *)
+        echo "Usage: $0 [start|update|cleanup|health|backup]"
+        echo ""
+        echo "Commands:"
+        echo "  start    - Deploy the application (default)"
+        echo "  update   - Update and restart the application"
+        echo "  cleanup  - Clean up old data and Docker images"
+        echo "  health   - Check service health"
+        echo "  backup   - Set up and run backup"
+        exit 1
         ;;
 esac

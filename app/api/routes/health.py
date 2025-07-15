@@ -1,6 +1,7 @@
 # Add this health router to your app/main.py
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import text  # Add this import
 from app.database.session import SessionLocal
 from app.settings import settings
 import logging
@@ -10,10 +11,10 @@ import psutil
 from datetime import datetime
 
 # Create health router
-health_router = APIRouter()
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@health_router.get("/health")
+@router.get("/health")
 async def health_check():
     """
     Health check endpoint for monitoring
@@ -32,7 +33,7 @@ async def health_check():
     # Check database connection
     try:
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))  # Fixed: Use text() function
         db.close()
         health_status["components"]["database"] = {
             "status": "healthy",
@@ -111,17 +112,17 @@ async def health_check():
     
     return health_status
 
-@health_router.get("/health/simple")
+@router.get("/health/simple")
 async def simple_health_check():
     """Simple health check that just returns OK"""
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
-@health_router.get("/health/database")
+@router.get("/health/database")
 async def database_health_check():
     """Specific database health check"""
     try:
         db = SessionLocal()
-        result = db.execute("SELECT COUNT(*) as user_count FROM users").fetchone()
+        result = db.execute(text("SELECT COUNT(*) as user_count FROM users")).fetchone()  # Fixed: Use text() function
         db.close()
         
         return {
@@ -140,19 +141,3 @@ async def database_health_check():
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
-
-# Add this to your app/main.py:
-"""
-from fastapi import FastAPI
-from .health_endpoint import health_router
-
-app = FastAPI(title="Viveo API")
-
-# Include health router
-app.include_router(health_router, tags=["health"])
-
-# Include your other routers
-# app.include_router(auth_router, tags=["auth"])
-# app.include_router(food_router, tags=["food"])
-# etc.
-"""
