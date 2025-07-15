@@ -1,7 +1,7 @@
 // config.js - Application Configuration
 
-// API Configuration - Point directly to backend
-const API_BASE_URL = 'http://localhost/8000';
+// API Configuration
+const API_BASE_URL = 'http://localhost:8000';
 
 // App State
 let currentUser = null;
@@ -32,7 +32,15 @@ let userProfile = {
 const APP_SETTINGS = {
     autoSaveInterval: 30000, // 30 seconds
     maxFoodEntries: 100,
-    debugMode: true // Enable debug to see API calls
+    debugMode: true
+};
+
+// Environment info
+const ENV_INFO = {
+    environment: 'mac',
+    deployMode: 'development',
+    uiPath: '/viveo',
+    domain: 'localhost'
 };
 
 // Utility functions

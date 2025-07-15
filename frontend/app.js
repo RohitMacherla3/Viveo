@@ -21,9 +21,6 @@ function initializeApp() {
     // Initialize calendar
     initializeCalendar();
     
-    // Initialize water tracking
-    updateWaterProgress();
-    
     // Initialize calorie tracking
     updateCalorieProgress();
     
@@ -63,9 +60,6 @@ function onUserLogin() {
     // Load today's food entries
     loadTodaysFoodEntries();
     
-    // Load water intake for today
-    loadWaterIntake();
-    
     // Initialize AI chat
     initializeAiChat();
     
@@ -75,81 +69,6 @@ function onUserLogin() {
             showAiNotification();
         }
     }, 5000);
-}
-
-// Water tracking functions
-let waterIntake = 0;
-const waterTarget = 3500; // 3.5 liters
-
-function addWater(amount = 200) {
-    waterIntake += amount;
-    
-    // Don't exceed reasonable limits
-    if (waterIntake > 8000) {
-        waterIntake = 8000;
-    }
-    
-    updateWaterDisplay();
-    updateWaterProgress();
-    
-    // Save to storage
-    saveWaterIntake();
-    
-    // Show success message
-    showToastMessage(`Added ${amount}ml of water!`, 'success');
-}
-
-function updateWaterDisplay() {
-    const waterConsumed = document.getElementById('waterConsumed');
-    const waterTargetElement = document.getElementById('waterTarget');
-    
-    if (waterConsumed) {
-        waterConsumed.textContent = waterIntake;
-    }
-    
-    if (waterTargetElement) {
-        waterTargetElement.textContent = waterTarget;
-    }
-}
-
-function updateWaterProgress() {
-    const progress = Math.min((waterIntake / waterTarget) * 100, 100);
-    const waterProgress = document.getElementById('waterProgress');
-    
-    if (waterProgress) {
-        waterProgress.style.width = `${progress}%`;
-        
-        // Change color based on progress
-        if (progress >= 100) {
-            waterProgress.style.background = 'linear-gradient(90deg, #4CAF50, #45a049)';
-        } else if (progress >= 50) {
-            waterProgress.style.background = 'linear-gradient(90deg, #2196F3, #1976D2)';
-        } else {
-            waterProgress.style.background = 'linear-gradient(90deg, #ff9800, #f57c00)';
-        }
-    }
-    
-    updateWaterDisplay();
-}
-
-function saveWaterIntake() {
-    const dateString = getCurrentDateString();
-    const storageKey = `viveo_water_${currentUser?.username || 'guest'}_${dateString}`;
-    localStorage.setItem(storageKey, waterIntake.toString());
-}
-
-function loadWaterIntake() {
-    const dateString = getCurrentDateString();
-    const storageKey = `viveo_water_${currentUser?.username || 'guest'}_${dateString}`;
-    const saved = localStorage.getItem(storageKey);
-    
-    if (saved) {
-        waterIntake = parseInt(saved) || 0;
-    } else {
-        waterIntake = 0;
-    }
-    
-    updateWaterProgress();
 }
 
 // Toast notification system
@@ -252,10 +171,7 @@ function autoSave() {
     if (currentUser) {
         try {
             // Save current day data
-            saveDayData();
-            
-            // Save water intake
-            saveWaterIntake();
+            autoSaveDayData();
             
             // Save profile
             localStorage.setItem('viveo_profile', JSON.stringify(userProfile));
@@ -376,34 +292,6 @@ document.addEventListener('keydown', function(event) {
     }
 });
 
-// Notification system
-function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                showToastMessage('Notifications enabled!', 'success');
-            }
-        });
-    }
-}
-
-function showNotification(title, options = {}) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification(title, {
-            icon: '/favicon.ico',
-            badge: '/favicon.ico',
-            ...options
-        });
-        
-        // Auto-close after 5 seconds
-        setTimeout(() => {
-            notification.close();
-        }, 5000);
-        
-        return notification;
-    }
-}
-
 // Data export/import functionality
 function exportAllData() {
     const allData = {
@@ -411,7 +299,6 @@ function exportAllData() {
         exportDate: new Date().toISOString(),
         profile: userProfile,
         currentFoodEntries: foodEntries,
-        waterIntake: waterIntake,
         calorieData: calorieData
     };
     
@@ -419,7 +306,7 @@ function exportAllData() {
     const storedData = {};
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key.startsWith('viveo_data_') || key.startsWith('viveo_water_')) {
+        if (key.startsWith('viveo_day_')) {
             storedData[key] = localStorage.getItem(key);
         }
     }
@@ -429,7 +316,7 @@ function exportAllData() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `viveo-complete-export-${getCurrentDateString()}.json`;
+    a.download = `viveo-export-${getCurrentDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -445,16 +332,6 @@ function logPerformance() {
         const loadTime = timing.loadEventEnd - timing.navigationStart;
         debugLog(`Page load time: ${loadTime}ms`);
     }
-}
-
-// Service Worker registration (for PWA functionality)
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-        // Uncomment to register service worker
-        // navigator.serviceWorker.register('/sw.js')
-        //     .then(registration => debugLog('SW registered:', registration))
-        //     .catch(error => debugLog('SW registration failed:', error));
-    });
 }
 
 // Analytics tracking (placeholder)
@@ -492,6 +369,100 @@ const AppState = {
 AppState.setLoading(false);
 AppState.setUnsavedChanges(false);
 
+// Global error boundary
+window.addEventListener('unhandledrejection', function(event) {
+    debugLog('Unhandled promise rejection:', event.reason);
+    showToastMessage('Something went wrong. Please try again.', 'error');
+});
+
+// === UTILITY FUNCTIONS ===
+
+// Generate unique ID
+function generateId() {
+    return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Get current date string in YYYY-MM-DD format
+function getCurrentDateString() {
+    const now = new Date();
+    return now.toISOString().split('T')[0];
+}
+
+// Auto-save day data (safe version)
+function autoSaveDayData() {
+    try {
+        const dateString = getCurrentDateString();
+        const dayData = {
+            date: dateString,
+            foodEntries: foodEntries || [],
+            calorieData: calorieData || { intake: 0, target: 2000, left: 2000 },
+            userProfile: userProfile || {}
+        };
+        
+        localStorage.setItem(`viveo_day_${dateString}`, JSON.stringify(dayData));
+        debugLog('Saved day data for:', dateString);
+    } catch (error) {
+        console.error('Failed to save day data:', error);
+    }
+}
+
+// Load day data (safe version)
+function loadDayData(dateString) {
+    try {
+        const savedData = localStorage.getItem(`viveo_day_${dateString}`);
+        if (savedData) {
+            const dayData = JSON.parse(savedData);
+            
+            // Only update if data exists
+            if (dayData.foodEntries && Array.isArray(dayData.foodEntries)) {
+                foodEntries = dayData.foodEntries;
+            }
+            if (dayData.calorieData) {
+                Object.assign(calorieData, dayData.calorieData);
+            }
+            if (dayData.userProfile) {
+                Object.assign(userProfile, dayData.userProfile);
+            }
+            
+            debugLog('Loaded day data for:', dateString);
+            return dayData;
+        }
+    } catch (error) {
+        console.error('Failed to load day data:', error);
+    }
+    return null;
+}
+
+// Parse food fallback function (simple demo version)
+function parseFood(foodText) {
+    // Simple fallback food parsing for demo
+    const foods = [
+        {
+            name: foodText,
+            quantity: 100,
+            nutrition: {
+                calories: 2, // calories per gram
+                protein: 0.15,
+                carbs: 0.25,
+                fat: 0.08
+            }
+        }
+    ];
+    return foods;
+}
+
+// Calculate nutrition
+function calculateNutrition(nutrition, quantity) {
+    return {
+        calories: Math.round(nutrition.calories * quantity),
+        protein: Math.round(nutrition.protein * quantity),
+        carbs: Math.round(nutrition.carbs * quantity),
+        fat: Math.round(nutrition.fat * quantity)
+    };
+}
+
+// === INITIALIZATION ===
+
 // Log performance when page loads
 window.addEventListener('load', logPerformance);
 
@@ -499,10 +470,14 @@ window.addEventListener('load', logPerformance);
 document.addEventListener('DOMContentLoaded', adjustForMobile);
 window.addEventListener('resize', adjustForMobile);
 
-// Global error boundary
-window.addEventListener('unhandledrejection', function(event) {
-    debugLog('Unhandled promise rejection:', event.reason);
-    showToastMessage('Something went wrong. Please try again.', 'error');
-});
+// Add visibility change listener for auto-save
+document.addEventListener('visibilitychange', handleVisibilityChange);
+
+// Initialize auto-save
+setInterval(() => {
+    if (currentUser) {
+        autoSave();
+    }
+}, 30000);
 
 debugLog('App.js loaded successfully');

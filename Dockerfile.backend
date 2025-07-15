@@ -1,5 +1,7 @@
-# Use Python 3.13 slim image
-FROM python:3.13-slim
+# Multi-stage Dockerfile for Viveo Backend
+# Supports both development and production modes
+
+FROM python:3.13-slim as base
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -18,6 +20,7 @@ RUN apt-get update \
         default-libmysqlclient-dev \
         curl \
         build-essential \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -27,6 +30,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
+# Development stage
+FROM base as development
+
+# Install development dependencies
+RUN pip install --no-cache-dir watchdog
+
 # Copy application code
 COPY . .
 
@@ -34,7 +43,27 @@ COPY . .
 RUN mkdir -p /app/data /app/logs \
     && chmod 755 /app/data /app/logs
 
-# Create a non-root user
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run with reload for development
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "info"]
+
+# Production stage
+FROM base as production
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs \
+    && chmod 755 /app/data /app/logs
+
+# Create a non-root user for production
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app
 
@@ -45,8 +74,12 @@ USER appuser
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application - note the path to main.py in app directory
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Run without reload for production
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+# Default stage selector based on build arg
+ARG MODE=dev
+FROM ${MODE}ment as final

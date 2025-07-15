@@ -1,32 +1,160 @@
-# Use Node.js LTS Alpine image
-FROM node:18-alpine
+# Multi-stage Dockerfile for Viveo Frontend
+# Supports both development and production modes
+
+FROM node:18-alpine as base
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files (if you have them)
-COPY package*.json ./
+# Install serve globally (used in both modes)
+RUN npm install -g serve
 
-# Install dependencies and serve
+# Copy package files if they exist
+COPY package*.json ./ || true
+
+# Install dependencies if package.json exists
 RUN if [ -f package.json ]; then \
-        # Install serve globally and project dependencies
-        npm install -g serve && \
         if [ -f package-lock.json ]; then \
             npm ci --omit=dev; \
         else \
             npm install --omit=dev; \
         fi; \
-    else \
-        # Just install serve globally
-        npm install -g serve; \
     fi
 
-# Copy all frontend files
+# Development stage
+FROM base as development
+
+# Copy all source files
 COPY . .
 
-# Create a non-root user
-RUN addgroup -g 1001 -S nodejs \
-    && adduser -S nextjs -u 1001
+# Generate config.js for development
+ARG API_BASE_URL=/viveo/api
+RUN cat > config.js << 'EOF'
+// config.js - Application Configuration (Development)
+const API_BASE_URL = '/viveo/api';
+
+let currentUser = null;
+let currentDate = new Date();
+let foodEntries = [];
+let aiChatOpen = false;
+
+let calorieData = {
+    intake: 0,
+    target: 1764,
+    left: 1764
+};
+
+let userProfile = {
+    calorieGoal: 2000,
+    proteinGoal: 150,
+    carbsGoal: 250,
+    fatsGoal: 65,
+    age: null,
+    weight: null,
+    height: null,
+    activityLevel: 'moderately_active'
+};
+
+const APP_SETTINGS = {
+    autoSaveInterval: 30000,
+    maxFoodEntries: 100,
+    debugMode: true
+};
+
+const ENV_INFO = {
+    environment: 'development',
+    deployMode: 'dev',
+    uiPath: '/viveo',
+    domain: 'localhost'
+};
+
+function showMessage(message, type = 'info') {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+}
+
+function debugLog(message, data = null) {
+    if (APP_SETTINGS.debugMode) {
+        console.log(`[DEBUG] ${message}`, data);
+    }
+}
+EOF
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+
+# Development command - serve with hot reload capability
+CMD ["serve", "-s", ".", "-l", "3000", "--cors"]
+
+# Production stage
+FROM base as production
+
+# Copy all source files
+COPY . .
+
+# Generate optimized config.js for production
+ARG API_BASE_URL=/viveo/api
+RUN cat > config.js << 'EOF'
+// config.js - Application Configuration (Production)
+const API_BASE_URL = '/viveo/api';
+
+let currentUser = null;
+let currentDate = new Date();
+let foodEntries = [];
+let aiChatOpen = false;
+
+let calorieData = {
+    intake: 0,
+    target: 1764,
+    left: 1764
+};
+
+let userProfile = {
+    calorieGoal: 2000,
+    proteinGoal: 150,
+    carbsGoal: 250,
+    fatsGoal: 65,
+    age: null,
+    weight: null,
+    height: null,
+    activityLevel: 'moderately_active'
+};
+
+const APP_SETTINGS = {
+    autoSaveInterval: 30000,
+    maxFoodEntries: 100,
+    debugMode: false
+};
+
+const ENV_INFO = {
+    environment: 'production',
+    deployMode: 'prod',
+    uiPath: '/viveo',
+    domain: 'localhost'
+};
+
+function showMessage(message, type = 'info') {
+    if (type === 'error') {
+        console.error(`[${type.toUpperCase()}] ${message}`);
+    }
+}
+
+function debugLog(message, data = null) {
+    // Debug disabled in production
+}
+EOF
+
+# Optimize for production - remove unnecessary files
+RUN find . -name "*.md" -type f -delete && \
+    find . -name "*.txt" -type f -delete && \
+    find . -name ".git*" -type f -delete || true
+
+# Create a non-root user for production security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
 
 # Change ownership of the app directory
 RUN chown -R nextjs:nodejs /app
@@ -39,5 +167,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
-# Start command - serve static files
-CMD ["serve", "-s", ".", "-l", "3000"]
+# Production command - optimized serve with security headers
+CMD ["serve", "-s", ".", "-l", "3000", "--no-clipboard", "--no-port-switching"]
+
+# Default stage selector based on build arg
+ARG MODE=dev
+FROM ${MODE}elopment as final

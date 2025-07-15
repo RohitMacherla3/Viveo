@@ -1,18 +1,25 @@
 #!/bin/bash
 
-# Viveo Deployment Script for Proxmox Server
-# This script sets up and deploys the Viveo application using Docker
+# Viveo Unified Deployment Script
+# Supports both Mac development and Proxmox server production
 
-set -e  # Exit on any error
+set -e
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging function
+# Default values
+MODE="dev"  # dev or prod
+UI_PATH="/viveo"
+DOMAIN="localhost"
+SSL_ENABLED=false
+CLAUDE_API_KEY=""
+
+# Logging functions
 log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
 }
@@ -25,151 +32,518 @@ error() {
     echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
 }
 
-# Check if running as root
-check_root() {
-    if [[ $EUID -eq 0 ]]; then
-        warn "This script is running as root. Consider running as a regular user with sudo privileges."
-    fi
+# Help function
+show_help() {
+    cat << EOF
+Viveo Deployment Script
+
+Usage: $0 [OPTIONS] [COMMAND]
+
+OPTIONS:
+    -m, --mode MODE         Deployment mode: dev, prod (default: dev)
+    -p, --path PATH         UI path (default: /viveo)
+    -d, --domain DOMAIN     Domain name (default: localhost)
+    -s, --ssl               Enable SSL/HTTPS (prod mode only)
+    -k, --claude-key KEY    Claude API key
+    -h, --help              Show this help
+
+COMMANDS:
+    start                   Deploy the application (default)
+    stop                    Stop all services
+    restart                 Restart all services
+    logs [service]          Show logs for service
+    status                  Show service status
+    update                  Update and restart services
+    cleanup                 Clean up old data and images
+    backup                  Create backup
+
+EXAMPLES:
+    $0                                          # Mac development mode
+    $0 --mode dev                              # Explicit dev mode
+    $0 --mode prod --domain myapp.com --ssl   # Production with SSL
+    $0 --mode prod --claude-key sk-xxx...     # Production with API key
+
+EOF
 }
 
-# Check system requirements
-check_requirements() {
-    log "Checking system requirements..."
+# Set configuration based on mode
+set_config() {
+    case $MODE in
+        "dev")
+            COMPOSE_FILE="docker-compose.dev.yml"
+            CONTAINER_SUFFIX="-dev"
+            FRONTEND_PORT="3001"
+            BACKEND_PORT="8001"
+            MYSQL_PORT="3307"
+            NGINX_HTTP_PORT="8080"
+            NGINX_HTTPS_PORT="8443"
+            DEBUG_MODE="true"
+            ENV_FILE=".env.dev"
+            log "🍎 Mac Development Mode"
+            ;;
+        "prod")
+            COMPOSE_FILE="docker-compose.prod.yml"
+            CONTAINER_SUFFIX=""
+            FRONTEND_PORT="3000"
+            BACKEND_PORT="8000"
+            MYSQL_PORT="3306"
+            NGINX_HTTP_PORT="80"
+            NGINX_HTTPS_PORT="443"
+            DEBUG_MODE="false"
+            ENV_FILE=".env.prod"
+            log "🚀 Production Server Mode"
+            ;;
+        *)
+            error "Invalid mode: $MODE. Use 'dev' or 'prod'"
+            exit 1
+            ;;
+    esac
     
-    # Check if Docker is installed
-    if ! command -v docker &> /dev/null; then
-        error "Docker is not installed. Please install Docker first."
-        exit 1
-    fi
-    
-    # Check if Docker Compose is installed
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        error "Docker Compose is not installed. Please install Docker Compose first."
-        exit 1
-    fi
-    
-    # Check available disk space (at least 2GB)
-    available_space=$(df / | awk 'NR==2 {print $4}')
-    if [[ $available_space -lt 2097152 ]]; then  # 2GB in KB
-        warn "Low disk space detected. At least 2GB recommended."
-    fi
-    
-    log "System requirements check completed."
+    log "Using compose file: $COMPOSE_FILE"
+    log "UI will be available at: http://${DOMAIN}:${NGINX_HTTP_PORT}${UI_PATH}/"
 }
 
-# Setup environment
-setup_environment() {
-    log "Setting up environment..."
+# Generate docker-compose file
+generate_compose_file() {
+    log "Generating $COMPOSE_FILE..."
     
-    # Create .env file if it doesn't exist
-    if [[ ! -f .env ]]; then
-        log "Creating .env file..."
-        
-        # Create basic .env file
-        cat > .env << 'EOF'
+    cat > $COMPOSE_FILE << EOF
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: viveo-mysql${CONTAINER_SUFFIX}
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: \${MYSQL_ROOT_PASSWORD:-viveo_root_password}
+      MYSQL_DATABASE: \${MYSQL_DATABASE:-viveo_db}
+      MYSQL_USER: \${MYSQL_USER:-viveo_user}
+      MYSQL_PASSWORD: \${MYSQL_PASSWORD:-viveo_password}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql_data${CONTAINER_SUFFIX}:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - viveo-network${CONTAINER_SUFFIX}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        - MODE=${MODE}
+    container_name: viveo-backend${CONTAINER_SUFFIX}
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE}
+    environment:
+      - DATABASE_URL=mysql+pymysql://\${MYSQL_USER:-viveo_user}:\${MYSQL_PASSWORD:-viveo_password}@mysql:3306/\${MYSQL_DATABASE:-viveo_db}
+      - PYTHONPATH=/app
+      - MODE=${MODE}
+    ports:
+      - "${BACKEND_PORT}:8000"
+    volumes:
+      - ./data:/app/data
+      - backend_logs${CONTAINER_SUFFIX}:/app/logs
+EOF
+
+    # Add volume mounts for dev mode only
+    if [[ "$MODE" == "dev" ]]; then
+        cat >> $COMPOSE_FILE << EOF
+      - ./app:/app/app:ro  # Mount source for hot reload
+EOF
+    fi
+
+    cat >> $COMPOSE_FILE << EOF
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - viveo-network${CONTAINER_SUFFIX}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - MODE=${MODE}
+        - API_BASE_URL=${UI_PATH}/api
+    container_name: viveo-frontend${CONTAINER_SUFFIX}
+    restart: unless-stopped
+    environment:
+      - MODE=${MODE}
+      - API_BASE_URL=${UI_PATH}/api
+    ports:
+      - "${FRONTEND_PORT}:3000"
+EOF
+
+    # Add volume mounts for dev mode only
+    if [[ "$MODE" == "dev" ]]; then
+        cat >> $COMPOSE_FILE << EOF
+    volumes:
+      - ./frontend:/app:ro  # Mount source for development
+EOF
+    fi
+
+    cat >> $COMPOSE_FILE << EOF
+    depends_on:
+      - backend
+    networks:
+      - viveo-network${CONTAINER_SUFFIX}
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: viveo-nginx${CONTAINER_SUFFIX}
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT}:80"
+EOF
+
+    if [[ "$SSL_ENABLED" == true ]]; then
+        cat >> $COMPOSE_FILE << EOF
+      - "${NGINX_HTTPS_PORT}:443"
+EOF
+    fi
+
+    cat >> $COMPOSE_FILE << EOF
+    volumes:
+      - ./nginx/nginx.${MODE}.conf:/etc/nginx/nginx.conf
+EOF
+
+    if [[ "$SSL_ENABLED" == true ]]; then
+        cat >> $COMPOSE_FILE << EOF
+      - ./nginx/ssl:/etc/nginx/ssl
+EOF
+    fi
+
+    cat >> $COMPOSE_FILE << EOF
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - viveo-network${CONTAINER_SUFFIX}
+
+volumes:
+  mysql_data${CONTAINER_SUFFIX}:
+  backend_logs${CONTAINER_SUFFIX}:
+
+networks:
+  viveo-network${CONTAINER_SUFFIX}:
+    driver: bridge
+EOF
+}
+
+# Generate nginx configuration
+generate_nginx_config() {
+    log "Generating nginx configuration for $MODE mode..."
+    
+    mkdir -p nginx
+    
+    cat > nginx/nginx.${MODE}.conf << EOF
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    # Logging
+    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                    '\$status \$body_bytes_sent "\$http_referer" '
+                    '"\$http_user_agent" "\$http_x_forwarded_for"';
+    
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log warn;
+    
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+
+    # Rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;
+
+    # Upstream servers
+    upstream backend {
+        server viveo-backend${CONTAINER_SUFFIX}:8000;
+    }
+
+    upstream frontend {
+        server viveo-frontend${CONTAINER_SUFFIX}:3000;
+    }
+
+    # Main server block
+    server {
+        listen 80;
+        server_name ${DOMAIN};
+        client_max_body_size 10M;
+
+        # Root redirect to UI path
+        location = / {
+            return 301 ${UI_PATH}/;
+        }
+
+        # Viveo UI routes
+        location ${UI_PATH}/ {
+            rewrite ^${UI_PATH}/(.*) /\$1 break;
+            
+            proxy_pass http://frontend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+
+        # API routes
+        location ${UI_PATH}/api/ {
+            rewrite ^${UI_PATH}/api/(.*) /\$1 break;
+            
+            proxy_pass http://backend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            
+            limit_req zone=api burst=20 nodelay;
+        }
+
+        # Authentication endpoints
+        location ~ ^${UI_PATH}/api/(token|signup|login) {
+            rewrite ^${UI_PATH}/api/(.*) /\$1 break;
+            
+            proxy_pass http://backend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            
+            limit_req zone=login burst=5 nodelay;
+        }
+
+        # Health check endpoint
+        location ${UI_PATH}/health {
+            rewrite ^${UI_PATH}/health /health break;
+            proxy_pass http://backend;
+            access_log off;
+        }
+    }
+EOF
+
+    if [[ "$SSL_ENABLED" == true ]]; then
+        cat >> nginx/nginx.${MODE}.conf << EOF
+
+    # HTTPS server block
+    server {
+        listen 443 ssl http2;
+        server_name ${DOMAIN};
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:SSL:50m;
+        ssl_session_tickets off;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+
+        add_header Strict-Transport-Security "max-age=63072000" always;
+
+        # Same location blocks as HTTP
+        location = / {
+            return 301 ${UI_PATH}/;
+        }
+
+        location ${UI_PATH}/ {
+            rewrite ^${UI_PATH}/(.*) /\$1 break;
+            proxy_pass http://frontend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+
+        location ${UI_PATH}/api/ {
+            rewrite ^${UI_PATH}/api/(.*) /\$1 break;
+            proxy_pass http://backend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            limit_req zone=api burst=20 nodelay;
+        }
+
+        location ~ ^${UI_PATH}/api/(token|signup|login) {
+            rewrite ^${UI_PATH}/api/(.*) /\$1 break;
+            proxy_pass http://backend;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            limit_req zone=login burst=5 nodelay;
+        }
+
+        location ${UI_PATH}/health {
+            rewrite ^${UI_PATH}/health /health break;
+            proxy_pass http://backend;
+            access_log off;
+        }
+    }
+EOF
+    fi
+
+    cat >> nginx/nginx.${MODE}.conf << EOF
+}
+EOF
+}
+
+# Generate environment files
+generate_env_files() {
+    log "Generating environment files..."
+    
+    # Generate random values
+    SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "your-super-secret-key-change-in-production")
+    MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16 2>/dev/null || echo "viveo_root_pass")
+    MYSQL_PASSWORD=$(openssl rand -hex 16 2>/dev/null || echo "viveo_pass")
+    
+    # Development environment
+    cat > .env.dev << EOF
+# Development Environment Configuration
+MODE=dev
+DEBUG=true
+
 # Database Configuration
-MYSQL_ROOT_PASSWORD=viveo_root_pass_change_me
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
 MYSQL_DATABASE=viveo_db
 MYSQL_USER=viveo_user
-MYSQL_PASSWORD=viveo_secure_password_change_me
+MYSQL_PASSWORD=${MYSQL_PASSWORD}
 
 # Application Configuration
-SECRET_KEY=your-super-secret-jwt-key-change-in-production-make-it-long-and-random
-CLAUDE_API_KEY=your_claude_api_key_here
+SECRET_KEY=${SECRET_KEY}
+CLAUDE_API_KEY=${CLAUDE_API_KEY:-your_claude_api_key_here}
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# MongoDB (if needed)
+# MongoDB (legacy support)
 MONGO_DB_USR=dummy_user
 MONGO_DB_PWD=dummy_password
 
-# Environment
-DEBUG=false
+# Python Configuration
 PYTHONPATH=/app
 EOF
-        
-        # Generate random secret key
-        SECRET_KEY=$(openssl rand -hex 32)
-        sed -i.bak "s/your-super-secret-jwt-key-change-in-production-make-it-long-and-random/$SECRET_KEY/" .env
-        
-        # Generate random MySQL passwords
-        MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)
-        MYSQL_PASSWORD=$(openssl rand -hex 16)
-        sed -i.bak "s/viveo_root_pass_change_me/$MYSQL_ROOT_PASSWORD/" .env
-        sed -i.bak "s/viveo_secure_password_change_me/$MYSQL_PASSWORD/" .env
-        
-        warn "Please edit .env file and add your CLAUDE_API_KEY before continuing."
-        warn "Generated passwords have been set in .env file."
-        
-        # Remove backup files
-        rm -f .env.bak
+
+    # Production environment
+    cat > .env.prod << EOF
+# Production Environment Configuration
+MODE=prod
+DEBUG=false
+
+# Database Configuration
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+MYSQL_DATABASE=viveo_db
+MYSQL_USER=viveo_user
+MYSQL_PASSWORD=${MYSQL_PASSWORD}
+
+# Application Configuration
+SECRET_KEY=${SECRET_KEY}
+CLAUDE_API_KEY=${CLAUDE_API_KEY:-your_claude_api_key_here}
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# MongoDB (legacy support)
+MONGO_DB_USR=dummy_user
+MONGO_DB_PWD=dummy_password
+
+# Python Configuration
+PYTHONPATH=/app
+EOF
+
+    log "Environment files created: .env.dev and .env.prod"
+    if [[ -z "$CLAUDE_API_KEY" ]]; then
+        warn "Please set your Claude API key with: --claude-key sk-xxx..."
+        warn "Or edit ${ENV_FILE} manually"
     fi
+}
+
+# Setup directories and permissions
+setup_environment() {
+    log "Setting up environment..."
     
     # Create necessary directories
-    log "Creating necessary directories..."
     mkdir -p data/{users,vectors} logs nginx/ssl mysql/init frontend
     
     # Set proper permissions
     chmod 755 data logs 2>/dev/null || true
-    chmod -R 755 data/* 2>/dev/null || true
     
-    log "Environment setup completed."
-}
-
-# Setup frontend
-setup_frontend() {
-    log "Setting up frontend..."
-    
-    # Update API URL in frontend config if it exists
-    if [[ -f frontend/config.js ]]; then
-        log "Updating frontend configuration..."
-        # Use a more compatible sed command for Mac
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS version
-            sed -i.bak "s|http://localhost:8000|/api|g" frontend/config.js
-            rm -f frontend/config.js.bak
-        else
-            # Linux version
-            sed -i "s|http://localhost:8000|/api|g" frontend/config.js
-        fi
-    else
-        log "Frontend config.js not found, skipping configuration update."
+    # Generate SSL certificates for development if needed
+    if [[ "$SSL_ENABLED" == true ]] && [[ ! -f nginx/ssl/cert.pem ]]; then
+        log "Generating self-signed SSL certificates..."
+        mkdir -p nginx/ssl
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout nginx/ssl/key.pem \
+            -out nginx/ssl/cert.pem \
+            -subj "/C=US/ST=State/L=City/O=Viveo/CN=${DOMAIN}" 2>/dev/null || true
     fi
-    
-    log "Frontend setup completed."
 }
 
-# Build and start services
+# Deploy services
 deploy_services() {
-    log "Building and starting services..."
+    log "Deploying services in $MODE mode..."
     
-    # Determine which docker-compose file to use
-    COMPOSE_FILE="docker-compose.yml"
-    if [[ -f "docker-compose.mac.yml" ]]; then
-        COMPOSE_FILE="docker-compose.mac.yml"
-        log "Using Mac-specific docker-compose file"
-    fi
+    # Stop existing services
+    docker-compose -f $COMPOSE_FILE down 2>/dev/null || true
     
-    # Pull latest images (skip if not available)
-    log "Pulling base images..."
-    docker-compose -f $COMPOSE_FILE pull || warn "Some images could not be pulled, proceeding with build..."
-    
-    # Build custom images
-    log "Building backend image..."
-    docker-compose -f $COMPOSE_FILE build backend
-    
-    log "Building frontend image..."
-    docker-compose -f $COMPOSE_FILE build frontend
-    
-    # Start services
-    log "Starting services..."
+    # Build and start services
+    docker-compose -f $COMPOSE_FILE build
     docker-compose -f $COMPOSE_FILE up -d
     
-    # Wait for services to be healthy
+    # Wait for services
     log "Waiting for services to be ready..."
     sleep 30
     
-    # Check service health
     check_services
 }
 
@@ -177,277 +551,227 @@ deploy_services() {
 check_services() {
     log "Checking service health..."
     
-    # Get container names from docker ps
-    containers=$(docker ps --format "table {{.Names}}" | tail -n +2)
+    local services_healthy=true
     
-    if [[ -z "$containers" ]]; then
-        error "No containers are running!"
-        return 1
-    fi
-    
-    for container in $containers; do
-        if docker ps --filter "name=$container" --filter "status=running" | grep -q $container; then
-            log "✓ $container is running"
+    # Check containers
+    containers=$(docker-compose -f $COMPOSE_FILE ps --services)
+    for service in $containers; do
+        if docker-compose -f $COMPOSE_FILE ps $service | grep -q "Up"; then
+            log "✓ $service is running"
         else
-            error "✗ $container is not running"
-            docker logs $container --tail 20 2>/dev/null || true
+            error "✗ $service is not running"
+            services_healthy=false
         fi
     done
     
-    # Test API endpoint (adjust port based on your setup)
-    log "Testing API endpoints..."
+    # Test endpoints
+    local base_url="http://${DOMAIN}:${NGINX_HTTP_PORT}"
     
-    # Try different ports that might be used
-    API_PORTS=("8001" "8000" "80")
-    API_WORKING=false
+    # Wait a bit more and test health endpoint
+    sleep 10
+    if curl -f -s "${base_url}${UI_PATH}/health" &> /dev/null; then
+        log "✓ Health check passed"
+    else
+        warn "✗ Health check failed - services may still be starting"
+        services_healthy=false
+    fi
     
-    for port in "${API_PORTS[@]}"; do
-        if curl -f -s http://localhost:$port/health &> /dev/null || curl -f -s http://localhost:$port/api/health &> /dev/null; then
-            log "✓ API health check passed on port $port"
-            API_WORKING=true
-            break
+    if [[ "$services_healthy" == true ]]; then
+        log "🎉 Deployment successful!"
+        log ""
+        log "🌐 Access your application:"
+        log "  UI: ${base_url}${UI_PATH}/"
+        log "  API: ${base_url}${UI_PATH}/api/"
+        log "  Health: ${base_url}${UI_PATH}/health"
+        log ""
+        log "📊 Service Status:"
+        log "  Mode: $MODE"
+        log "  Domain: $DOMAIN"
+        log "  UI Path: $UI_PATH"
+        if [[ "$SSL_ENABLED" == true ]]; then
+            log "  HTTPS: https://${DOMAIN}:${NGINX_HTTPS_PORT}${UI_PATH}/"
         fi
-    done
-    
-    if [[ "$API_WORKING" == false ]]; then
-        warn "✗ API health check failed on all tested ports - service may still be starting"
-    fi
-    
-    # Test frontend
-    log "Testing frontend..."
-    FRONTEND_PORTS=("3001" "3000" "80")
-    FRONTEND_WORKING=false
-    
-    for port in "${FRONTEND_PORTS[@]}"; do
-        if curl -f -s http://localhost:$port &> /dev/null; then
-            log "✓ Frontend is accessible on port $port"
-            FRONTEND_WORKING=true
-            break
-        fi
-    done
-    
-    if [[ "$FRONTEND_WORKING" == false ]]; then
-        warn "✗ Frontend is not accessible on tested ports"
+    else
+        error "Some services are not healthy. Check logs with: $0 logs"
     fi
 }
 
-# Setup monitoring
-setup_monitoring() {
-    log "Setting up basic monitoring..."
-    
-    # Create a simple health check script
-    cat > health_check.sh << 'EOF'
-#!/bin/bash
-# Simple health check script for Viveo
-
-# Get running container names
-SERVICES=$(docker ps --format "{{.Names}}" | grep viveo || echo "")
-ALERT_EMAIL=""  # Set your email here
-
-if [[ -z "$SERVICES" ]]; then
-    echo "ALERT: No Viveo services are running"
-    if [[ -n "$ALERT_EMAIL" ]]; then
-        echo "ALERT: No Viveo services are running" | mail -s "Viveo Service Alert" $ALERT_EMAIL
+# Other functions
+show_logs() {
+    local service=${1:-}
+    if [[ -n "$service" ]]; then
+        docker-compose -f $COMPOSE_FILE logs -f $service
+    else
+        docker-compose -f $COMPOSE_FILE logs -f
     fi
-    exit 1
-fi
-
-for service in $SERVICES; do
-    if ! docker ps --filter "name=$service" --filter "status=running" | grep -q $service; then
-        echo "ALERT: $service is not running"
-        if [[ -n "$ALERT_EMAIL" ]]; then
-            echo "ALERT: $service is not running" | mail -s "Viveo Service Alert" $ALERT_EMAIL
-        fi
-        # Try to restart the service
-        docker start $service 2>/dev/null || true
-    fi
-done
-
-# Check disk space
-DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
-if [[ $DISK_USAGE -gt 80 ]]; then
-    echo "ALERT: Disk usage is ${DISK_USAGE}%"
-    if [[ -n "$ALERT_EMAIL" ]]; then
-        echo "ALERT: Disk usage is ${DISK_USAGE}%" | mail -s "Viveo Disk Alert" $ALERT_EMAIL
-    fi
-fi
-
-# Cleanup old logs
-docker system prune -f >/dev/null 2>&1 || true
-find logs/ -name "*.log" -mtime +7 -delete 2>/dev/null || true
-EOF
-
-    chmod +x health_check.sh
-    
-    log "Health check script created at: $(pwd)/health_check.sh"
-    log "To add to crontab for automatic monitoring:"
-    log "  */5 * * * * $(pwd)/health_check.sh"
 }
 
-# Backup function
-setup_backup() {
-    log "Setting up backup script..."
-    
-    cat > backup.sh << 'EOF'
-#!/bin/bash
-# Backup script for Viveo
-
-BACKUP_DIR="/tmp/viveo_backup"
-DATE=$(date +%Y%m%d_%H%M%S)
-
-mkdir -p $BACKUP_DIR
-
-# Check if .env file exists
-if [[ ! -f .env ]]; then
-    echo "ERROR: .env file not found"
-    exit 1
-fi
-
-# Load environment variables
-set -a
-source .env
-set +a
-
-# Find MySQL container
-MYSQL_CONTAINER=$(docker ps --filter "name=mysql" --format "{{.Names}}" | head -1)
-
-if [[ -n "$MYSQL_CONTAINER" ]]; then
-    # Backup database
-    echo "Backing up database..."
-    docker exec $MYSQL_CONTAINER mysqldump -u root -p${MYSQL_ROOT_PASSWORD} ${MYSQL_DATABASE:-viveo_db} > $BACKUP_DIR/db_backup_$DATE.sql 2>/dev/null || echo "Database backup failed"
-else
-    echo "MySQL container not found, skipping database backup"
-fi
-
-# Backup data directory if it exists
-if [[ -d data/ ]]; then
-    echo "Backing up data directory..."
-    tar -czf $BACKUP_DIR/data_backup_$DATE.tar.gz data/ 2>/dev/null || echo "Data backup failed"
-fi
-
-# Backup environment
-cp .env $BACKUP_DIR/env_backup_$DATE 2>/dev/null || echo "Environment backup failed"
-
-# Cleanup old backups (keep last 7 days)
-find $BACKUP_DIR -name "*backup*" -mtime +7 -delete 2>/dev/null || true
-
-echo "Backup completed: $DATE"
-echo "Backup location: $BACKUP_DIR"
-EOF
-
-    chmod +x backup.sh
-    
-    log "Backup script created at: $(pwd)/backup.sh"
-    log "To run backup: ./backup.sh"
-    log "To add automated backups to crontab:"
-    log "  0 2 * * * $(pwd)/backup.sh"
+stop_services() {
+    log "Stopping services..."
+    docker-compose -f $COMPOSE_FILE down
 }
 
-# Main deployment function
-main() {
-    log "Starting Viveo deployment..."
-    
-    check_root
-    check_requirements
-    setup_environment
-    setup_frontend
-    deploy_services
-    setup_monitoring
-    setup_backup
-    
-    log "Deployment completed successfully!"
-    log ""
-    log "🎉 Viveo is now running!"
-    log ""
-    log "Access your application at:"
-    log "  Frontend: http://localhost:3001 (or check running containers)"
-    log "  API: http://localhost:8001 (or check running containers)"
-    log ""
-    log "Useful commands:"
-    log "  View logs: docker-compose logs -f [service]"
-    log "  View containers: docker ps"
-    log "  Restart service: docker-compose restart [service]"
-    log "  Stop all: docker-compose down"
-    log "  Update app: ./deploy.sh --update"
-    log "  Backup data: ./backup.sh"
-    log "  Check health: ./health_check.sh"
-    log ""
-    log "Next steps:"
-    log "1. Check your .env file and add your CLAUDE_API_KEY"
-    log "2. Access the application and test functionality"
-    log "3. Set up automated backups if needed"
+restart_services() {
+    log "Restarting services..."
+    docker-compose -f $COMPOSE_FILE restart
 }
 
-# Update function
-update_application() {
-    log "Updating Viveo application..."
-    
-    # Pull latest changes (if using git)
-    if [[ -d .git ]]; then
-        git pull origin main || warn "Git pull failed, continuing with local code"
-    fi
-    
-    # Determine compose file
-    COMPOSE_FILE="docker-compose.yml"
-    if [[ -f "docker-compose.mac.yml" ]]; then
-        COMPOSE_FILE="docker-compose.mac.yml"
-    fi
-    
-    # Rebuild and restart services
+show_status() {
+    docker-compose -f $COMPOSE_FILE ps
+}
+
+update_services() {
+    log "Updating services..."
     docker-compose -f $COMPOSE_FILE down
     docker-compose -f $COMPOSE_FILE build --no-cache
     docker-compose -f $COMPOSE_FILE up -d
-    
-    # Wait and check health
     sleep 30
     check_services
-    
-    log "Application updated successfully."
 }
 
-# Cleanup function
-cleanup_old_data() {
-    log "Cleaning up old data..."
-    
-    # Remove old Docker images
-    docker image prune -f
-    
-    # Remove old logs
-    find logs/ -name "*.log" -mtime +30 -delete 2>/dev/null || true
-    
-    # Remove old data backups from data directory (keep last 30 days)
-    find data/ -name "*.backup" -mtime +30 -delete 2>/dev/null || true
-    
-    log "Cleanup completed."
+cleanup_services() {
+    log "Cleaning up..."
+    docker-compose -f $COMPOSE_FILE down -v
+    docker system prune -f
+    docker volume prune -f
 }
 
-# Handle command line arguments
-case "$1" in
-    --update|update)
-        update_application
-        ;;
-    --cleanup|cleanup)
-        cleanup_old_data
-        ;;
-    --health|health)
-        check_services
-        ;;
-    --backup|backup)
-        setup_backup
-        ./backup.sh
-        ;;
-    start|--start|"")
-        main "$@"
-        ;;
-    *)
-        echo "Usage: $0 [start|update|cleanup|health|backup]"
-        echo ""
-        echo "Commands:"
-        echo "  start    - Deploy the application (default)"
-        echo "  update   - Update and restart the application"
-        echo "  cleanup  - Clean up old data and Docker images"
-        echo "  health   - Check service health"
-        echo "  backup   - Set up and run backup"
-        exit 1
-        ;;
-esac
+create_backup() {
+    log "Creating backup..."
+    
+    BACKUP_DIR="./backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    
+    # Backup database
+    if docker-compose -f $COMPOSE_FILE ps mysql | grep -q "Up"; then
+        log "Backing up database..."
+        docker-compose -f $COMPOSE_FILE exec -T mysql mysqladmin ping -h localhost > /dev/null 2>&1
+        docker-compose -f $COMPOSE_FILE exec -T mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD:-viveo_root_password} viveo_db > "$BACKUP_DIR/database.sql" 2>/dev/null || warn "Database backup failed"
+    fi
+    
+    # Backup data directory
+    if [[ -d data ]]; then
+        tar -czf "$BACKUP_DIR/data.tar.gz" data/
+    fi
+    
+    # Backup environment files
+    cp .env.* "$BACKUP_DIR/" 2>/dev/null || true
+    
+    log "Backup created at: $BACKUP_DIR"
+}
+
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -m|--mode)
+                MODE="$2"
+                shift 2
+                ;;
+            -p|--path)
+                UI_PATH="$2"
+                shift 2
+                ;;
+            -d|--domain)
+                DOMAIN="$2"
+                shift 2
+                ;;
+            -k|--claude-key)
+                CLAUDE_API_KEY="$2"
+                shift 2
+                ;;
+            -s|--ssl)
+                SSL_ENABLED=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            start|"")
+                COMMAND="start"
+                shift
+                ;;
+            stop)
+                COMMAND="stop"
+                shift
+                ;;
+            restart)
+                COMMAND="restart"
+                shift
+                ;;
+            logs)
+                COMMAND="logs"
+                LOG_SERVICE="$2"
+                shift 2
+                ;;
+            status)
+                COMMAND="status"
+                shift
+                ;;
+            update)
+                COMMAND="update"
+                shift
+                ;;
+            cleanup)
+                COMMAND="cleanup"
+                shift
+                ;;
+            backup)
+                COMMAND="backup"
+                shift
+                ;;
+            *)
+                error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Main function
+main() {
+    parse_args "$@"
+    
+    set_config
+    
+    case ${COMMAND:-start} in
+        "start")
+            setup_environment
+            generate_env_files
+            generate_compose_file
+            generate_nginx_config
+            deploy_services
+            ;;
+        "stop")
+            stop_services
+            ;;
+        "restart")
+            restart_services
+            ;;
+        "logs")
+            show_logs "$LOG_SERVICE"
+            ;;
+        "status")
+            show_status
+            ;;
+        "update")
+            update_services
+            ;;
+        "cleanup")
+            cleanup_services
+            ;;
+        "backup")
+            create_backup
+            ;;
+        *)
+            error "Unknown command: $COMMAND"
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
