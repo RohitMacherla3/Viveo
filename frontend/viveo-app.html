@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viveo - Calorie Tracking</title>
+    <style>
+        /* Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #2d5a27;
+        }
+
+        .logo::before {
+            content: "🌿";
+            margin-right: 0.5rem;
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 1rem;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #4CAF50;
+            border: 2px solid #4CAF50;
+        }
+
+        .btn-secondary:hover {
+            background: #4CAF50;
+            color: white;
+        }
+
+        /* Main Content */
+        .main-content {
+            padding: 2rem 0;
+            margin-right: 440px; /* Make room for AI chat */
+        }
+
+        .hero {
+            text-align: center;
+            padding: 3rem 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 16px;
+            margin-bottom: 3rem;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        /* Dashboard */
+        .dashboard {
+            display: none;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .dashboard.active {
+            display: grid;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .card h3 {
+            margin-bottom: 1rem;
+            color: #2d5a27;
+        }
+
+        /* Calendar */
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .calendar-nav {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            color: #4CAF50;
+        }
+
+        .calendar-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0.5rem;
+        }
+
+        .calendar-day {
+            padding: 0.75rem;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .calendar-day:hover {
+            background: #f0f0f0;
+        }
+
+        .calendar-day.active {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .calendar-day.today {
+            background: #e8f5e8;
+            color: #2d5a27;
+        }
+
+        /* Calorie Counter */
+        .calorie-counter {
+            text-align: center;
+        }
+
+        .calorie-display {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #4CAF50;
+            margin: 1rem 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Macro Breakdown */
+        .macro-breakdown {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .macro-item {
+            text-align: center;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .macro-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .macro-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        /* Food Log Section */
+        .food-log-section {
+            margin-bottom: 3rem;
+        }
+
+        .food-input-area {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .food-input {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            resize: vertical;
+        }
+
+        .food-input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .food-entries {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .food-entry {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .food-info h4 {
+            margin-bottom: 0.5rem;
+            color: #2d5a27;
+        }
+
+        .food-details {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .food-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .food-calories {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .delete-food-btn {
+            background: #ff4444;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .delete-food-btn:hover {
+            background: #cc0000;
+            transform: scale(1.1);
+        }
+
+        /* Auth Forms */
+        .auth-form {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 400px;
+            margin: 0 auto;
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #2d5a27;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .form-toggle {
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .form-toggle a {
+            color: #4CAF50;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .form-toggle a:hover {
+            text-decoration: underline;
+        }
+
+        /* Profile Modal */
+        .profile-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .profile-modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .profile-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .profile-modal-header h2 {
+            margin: 0;
+            color: #2d5a27;
+        }
+
+        .close-modal {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+            padding: 0.5rem;
+            border-radius: 50%;
+            transition: background 0.3s ease;
+        }
+
+        .close-modal:hover {
+            background: #f0f0f0;
+        }
+
+        .profile-modal-body {
+            padding: 1.5rem;
+        }
+
+        .profile-section {
+            margin-bottom: 2rem;
+        }
+
+        .profile-section h3 {
+            margin-bottom: 1rem;
+            color: #2d5a27;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 0.5rem;
+        }
+
+        .profile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .profile-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        /* AI Chat - Always Visible Right Side Window */
+        .ai-chat-widget {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 400px;
+            height: calc(100vh - 120px);
+            z-index: 1000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: block !important;
+        }
+
+        .ai-chat-panel {
+            position: static;
+            width: 100%;
+            height: 100%;
+            background: white;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.15);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #e0e0e0;
+        }
+
+        .ai-chat-header {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            padding: 1.2rem;
+            text-align: center;
+            font-weight: 600;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 16px 16px 0 0;
+        }
+
+        .ai-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.2rem;
+            background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+        }
+
+        .ai-message {
+            margin-bottom: 1.2rem;
+            animation: slideInMessage 0.3s ease;
+        }
+
+        .ai-message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .ai-message.ai {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .ai-message-bubble {
+            max-width: 85%;
+            padding: 1rem 1.2rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .ai-message.user .ai-message-bubble {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .ai-message.ai .ai-message-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .ai-chat-input-area {
+            padding: 1.2rem;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            border-radius: 0 0 16px 16px;
+        }
+
+        .ai-chat-input-wrapper {
+            display: flex;
+            gap: 0.8rem;
+            align-items: flex-end;
+        }
+
+        .ai-chat-input {
+            flex: 1;
+            padding: 0.9rem 1.1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 22px;
+            font-size: 0.9rem;
+            resize: none;
+            max-height: 100px;
+            min-height: 44px;
+            transition: border-color 0.3s ease;
+        }
+
+        .ai-chat-input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .ai-send-button {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            font-size: 1.1rem;
+        }
+
+        .ai-send-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+
+        .ai-send-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .ai-typing-indicator {
+            display: none;
+            padding: 1rem 1.2rem;
+            background: white;
+            border-radius: 20px;
+            border-bottom-left-radius: 6px;
+            border: 1px solid #e0e0e0;
+            max-width: 85%;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .ai-typing-indicator.show {
+            display: block;
+        }
+
+        .ai-typing-dots {
+            display: flex;
+            gap: 0.3rem;
+        }
+
+        .ai-typing-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: typingBounce 1.4s infinite ease-in-out;
+        }
+
+        .ai-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .ai-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        /* Quick action buttons */
+        .quick-action-btn {
+            background: #f0f8f0;
+            border: 1px solid #4CAF50;
+            border-radius: 12px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #2d5a27;
+        }
+
+        .quick-action-btn:hover {
+            background: #4CAF50;
+            color: white;
+        }
+
+        /* Utility Classes */
+        .hidden {
+            display: none !important;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .message-alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .message-alert.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message-alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Animations */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes typingBounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+            }
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes slideInMessage {
+            from {
+                opacity: 0;
+                transform: translateY(15px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Mobile Responsive Design */
+        @media (max-width: 1200px) {
+            .ai-chat-widget {
+                display: none !important;
+            }
+            
+            .main-content {
+                margin-right: 0;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .macro-breakdown {
+                grid-template-columns: 1fr;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero p {
+                font-size: 1rem;
+            }
+
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .auth-buttons {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .food-entry {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+
+            .profile-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .profile-modal-content {
+                width: 95%;
+                margin: 1rem;
+            }
+
+            .profile-actions {
+                flex-direction: column;
+            }
+
+            .container {
+                padding: 0 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Viveo</div>
+                <div class="auth-buttons">
+                    <button class="btn btn-secondary" onclick="showLogin()">Login</button>
+                    <button class="btn btn-primary" onclick="showSignup()">Sign Up</button>
+                    <button class="btn btn-secondary hidden" id="logoutBtn" onclick="logout()">Logout</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="main-content">
+            <!-- Hero Section -->
+            <div class="hero" id="heroSection">
+                <h1>Personalized calorie and nutrition tracking at your fingertips</h1>
+                <p>Your ultimate guide to managing your diet, tracking calories and achieving goals.</p>
+                <button class="btn btn-primary" onclick="showSignup()">Get Started</button>
+            </div>
+
+            <!-- Auth Forms -->
+            <div class="auth-form" id="loginForm">
+                <h2 style="text-align: center; margin-bottom: 2rem; color: #2d5a27;">Login</h2>
+                <div id="loginMessage"></div>
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="loginUsername">Username</label>
+                        <input type="text" id="loginUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Password</label>
+                        <input type="password" id="loginPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
+                </form>
+                <div class="form-toggle">
+                    <p>Don't have an account? <a onclick="showSignup()">Sign up here</a></p>
+                </div>
+            </div>
+
+            <div class="auth-form" id="signupForm">
+                <h2 style="text-align: center; margin-bottom: 2rem; color: #2d5a27;">Sign Up</h2>
+                <div id="signupMessage"></div>
+                <form onsubmit="handleSignup(event)">
+                    <div class="form-group">
+                        <label for="signupUsername">Username</label>
+                        <input type="text" id="signupUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signupName">Full Name</label>
+                        <input type="text" id="signupName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signupEmail">Email</label>
+                        <input type="email" id="signupEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signupPassword">Password</label>
+                        <input type="password" id="signupPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Sign Up</button>
+                </form>
+                <div class="form-toggle">
+                    <p>Already have an account? <a onclick="showLogin()">Login here</a></p>
+                </div>
+            </div>
+
+            <!-- Dashboard -->
+            <div class="dashboard" id="dashboard">
+                <div class="card">
+                    <div class="calendar">
+                        <div class="calendar-header">
+                            <button class="calendar-nav" onclick="previousWeek()">‹</button>
+                            <h3 id="currentWeek">Wed, 10 Jul</h3>
+                            <button class="calendar-nav" onclick="nextWeek()">›</button>
+                        </div>
+                        <div class="calendar-days" id="calendarDays">
+                            <!-- Calendar days will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div class="calorie-counter">
+                        <h3>Calories left</h3>
+                        <div class="calorie-display" id="caloriesLeft">533 Cal</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.9rem; color: #666;">
+                            <span>Calorie Intake <span id="calorieIntake">1,231</span></span>
+                            <span>Target <span id="calorieTarget">1,764</span></span>
+                        </div>
+                    </div>
+
+                    <div class="macro-breakdown">
+                        <div class="macro-item">
+                            <div class="macro-value" id="carbsValue">6g</div>
+                            <div class="macro-label">Carbs left</div>
+                        </div>
+                        <div class="macro-item">
+                            <div class="macro-value" id="fatValue">82g</div>
+                            <div class="macro-label">Fat left</div>
+                        </div>
+                        <div class="macro-item">
+                            <div class="macro-value" id="proteinValue">68g</div>
+                            <div class="macro-label">Protein left</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Profile Settings</h3>
+                    <div id="profileDetails" style="margin: 1rem 0 2rem 0; text-align: center; color: #333;">
+                        <!-- Profile details will be populated by JS -->
+                    </div>
+                    <div style="text-align: center; margin-bottom: 2rem;">
+                        <button class="btn btn-primary" onclick="showProfileSettings()" style="margin-top: 1rem;">
+                            Edit Profile
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Food Log Section -->
+            <div class="food-log-section" id="foodLogSection" style="display: none;">
+                <div class="food-input-area">
+                    <h3 style="margin-bottom: 1rem; color: #2d5a27;">Log Food</h3>
+                    <textarea 
+                        class="food-input" 
+                        id="foodInput" 
+                        placeholder="Describe what you ate... (e.g., 'I had a chicken salad with mixed greens and dressing')"
+                        rows="3"
+                    ></textarea>
+                    <button class="btn btn-primary" onclick="logFood()">Log Food</button>
+                </div>
+
+                <div class="food-entries" id="foodEntries">
+                    <!-- Food entries will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Profile Settings Modal -->
+            <div class="profile-modal" id="profileModal" style="display: none;">
+                <div class="profile-modal-content">
+                    <div class="profile-modal-header">
+                        <h2>Profile Settings</h2>
+                        <button class="close-modal" onclick="closeProfileSettings()">✕</button>
+                    </div>
+                    <div class="profile-modal-body">
+                        <div id="profileMessage"></div>
+                        <form onsubmit="saveProfileSettings(event)">
+                            <div class="profile-section">
+                                <h3>Daily Nutrition Goals</h3>
+                                <div class="profile-grid">
+                                    <div class="form-group">
+                                        <label for="calorieGoal">Daily Calories</label>
+                                        <input type="number" id="calorieGoal" min="1000" max="5000" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="proteinGoal">Protein (g)</label>
+                                        <input type="number" id="proteinGoal" min="50" max="300" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="carbsGoal">Carbs (g)</label>
+                                        <input type="number" id="carbsGoal" min="50" max="500" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="fatsGoal">Fats (g)</label>
+                                        <input type="number" id="fatsGoal" min="20" max="200" required>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="profile-section">
+                                <h3>Personal Information</h3>
+                                <div class="profile-grid">
+                                    <div class="form-group">
+                                        <label for="age">Age</label>
+                                        <input type="number" id="age" min="16" max="100">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="weight">Weight (kg)</label>
+                                        <input type="number" id="weight" min="30" max="200" step="0.1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="height">Height (cm)</label>
+                                        <input type="number" id="height" min="100" max="250">
+                                    </div>
+                                    <div class="form-group">
+                                        <select id="activityLevel">
+                                            <option value="sedentary">Sedentary</option>
+                                            <option value="lightly_active">Lightly Active</option>
+                                            <option value="moderately_active">Moderately Active</option>
+                                            <option value="very_active">Very Active</option>
+                                            <option value="extremely_active">Extremely Active</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="profile-actions">
+                                <button type="button" class="btn btn-secondary" onclick="closeProfileSettings()">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Save Settings</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- AI Chat Widget - Fixed Right Side Window -->
+    <div class="ai-chat-widget" id="aiChatWidget">
+        <div class="ai-chat-panel" id="aiChatPanel">
+            <div class="ai-chat-header">
+                <div class="ai-title">🤖 Nutrition Assistant</div>
+                <div style="font-size: 0.8rem; opacity: 0.9; margin-top: 0.25rem;">Ask me about nutrition & food!</div>
+            </div>
+            
+            <div class="ai-chat-messages" id="aiChatMessages">
+                <!-- Messages will be populated by JavaScript -->
+            </div>
+            
+            <div class="ai-typing-indicator" id="aiTypingIndicator">
+                <div class="ai-typing-dots">
+                    <div class="ai-typing-dot"></div>
+                    <div class="ai-typing-dot"></div>
+                    <div class="ai-typing-dot"></div>
+                </div>
+            </div>
+            
+            <div class="ai-chat-input-area">
+                <div class="ai-chat-input-wrapper">
+                    <textarea 
+                        class="ai-chat-input" 
+                        id="aiChatInput" 
+                        placeholder="Ask about nutrition..."
+                        rows="1"
+                        onkeypress="handleAiChatKeyPress(event)"
+                        oninput="autoResizeTextarea(this)"
+                    ></textarea>
+                    <button class="ai-send-button" id="aiSendButton" onclick="sendAiMessage()">
+                        ➤
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="auth.js"></script>
+    <script src="foodLog.js"></script>
+    <script src="profile.js"></script>
+    <script src="calendar.js"></script>
+    <script src="app.js"></script>
+    <script src="aiChat.js"></script>
+</body>
+</html>
