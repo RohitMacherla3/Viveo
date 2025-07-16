@@ -25,7 +25,7 @@ services:
   backend:
     build:
       context: ..                    # Fixed: build from project root
-      dockerfile: deployment/Dockerfile.backend  # Fixed: path to Dockerfile
+      dockerfile: deployments/Dockerfile.backend  # Fixed: path to Dockerfile
       target: production            # Fixed: specify build target
     container_name: viveo-backend
     restart: unless-stopped
@@ -54,7 +54,7 @@ services:
   frontend:
     build:
       context: ..       # Fixed: relative path to frontend
-      dockerfile: deployment/Dockerfile.frontend
+      dockerfile: deployments/Dockerfile.frontend
       target: production           # Fixed: specify build target
       args:
         - API_BASE_URL=/viveo/api   # Fixed: proper API base URL

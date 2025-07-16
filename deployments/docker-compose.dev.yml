@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: viveo-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-viveo_root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-viveo_db}
+      MYSQL_USER: ${MYSQL_USER:-viveo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-viveo_password}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data-dev:/var/lib/mysql
+      - ../mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - viveo-network-dev
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.backend
+      target: development
+    container_name: viveo-backend-dev
+    restart: unless-stopped
+    env_file:
+      - /Users/rohitmacherla/Documents/Projects/viveo-dev/app/.env
+    environment:
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-viveo_user}:${MYSQL_PASSWORD:-viveo_password}@mysql:3306/${MYSQL_DATABASE:-viveo_db}
+      - PYTHONPATH=/app
+      - MODE=dev
+    ports:
+      - "8001:8000"
+    volumes:
+      - ../data:/app/data
+      - backend_logs-dev:/app/logs
+      - ../app:/app/app:ro  # Mount source for hot reload
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - viveo-network-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../deployments/Dockerfile.frontend
+      target: development
+      args:
+        - API_BASE_URL=/viveo/api
+    container_name: viveo-frontend-dev
+    restart: unless-stopped
+    environment:
+      - MODE=dev
+      - API_BASE_URL=/viveo/api
+    ports:
+      - "3001:3000"
+    volumes:
+      - ../frontend:/app:ro  # Mount source for development
+    depends_on:
+      - backend
+    networks:
+      - viveo-network-dev
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: viveo-nginx-dev
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - viveo-network-dev
+
+volumes:
+  mysql_data-dev:
+  backend_logs-dev:
+
+networks:
+  viveo-network-dev:
+    driver: bridge

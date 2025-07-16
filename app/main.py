@@ -7,6 +7,7 @@ app = FastAPI(
     title="Viveo API",
     description="API for the Viveo application",
     version="1.0.0",
+    root_path="/viveo/api"
 )
 
 app.add_middleware(
@@ -18,6 +19,10 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to the Viveo API"}
 
 
 if __name__ == "__main__":

@@ -24,6 +24,8 @@ CLAUDE_API_KEY=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+export COMPOSE_PROJECT_NAME="viveo"
+
 # Verify we're in the right location
 if [[ ! -d "$PROJECT_ROOT/app" ]] || [[ ! -d "$SCRIPT_DIR" ]]; then
     error "Script must be run from the deployments/ directory"
@@ -193,7 +195,7 @@ EOF
   frontend:
     build:
       context: ../frontend
-      dockerfile: ../deployment/Dockerfile.frontend
+      dockerfile: ../deployments/Dockerfile.frontend
       target: ${DOCKER_TARGET}
       args:
         - API_BASE_URL=${UI_PATH}/api
@@ -467,7 +469,7 @@ check_env_files() {
         log "  ALGORITHM=HS256"
         log "  ACCESS_TOKEN_EXPIRE_MINUTES=30"
         log "  CLAUDE_API_KEY=your-claude-key"
-        log "  OPENAI_API_KEY=your-openai-key"
+        log "  OPEN_AI_API_KEY=your-openai-key"
         log "  MYSQL_ROOT_PASSWORD=your-mysql-root-password"
         log "  MYSQL_DATABASE=viveo_db"
         log "  MYSQL_USER=viveo_user"
@@ -487,7 +489,7 @@ check_env_files() {
     
     [[ -z "$SECRET_KEY" ]] && missing_vars+=("SECRET_KEY")
     [[ -z "$CLAUDE_API_KEY" ]] && missing_vars+=("CLAUDE_API_KEY")
-    [[ -z "$OPENAI_API_KEY" ]] && missing_vars+=("OPENAI_API_KEY")
+    [[ -z "$OPEN_AI_API_KEY" ]] && missing_vars+=("OPEN_AI_API_KEY")
     
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         warn "Missing required environment variables: ${missing_vars[*]}"
@@ -501,7 +503,7 @@ check_env_files() {
         log "Using Claude API key from command line"
     fi
     
-    if [[ -n "$OPENAI_API_KEY" ]]; then
+    if [[ -n "$OPEN_AI_API_KEY" ]]; then
         log "Using OpenAI API key from command line"
     fi
 }
@@ -690,7 +692,7 @@ parse_args() {
                 shift 2
                 ;;
             --openai-key)
-                OPENAI_API_KEY="$2"
+                OPEN_AI_API_KEY="$2"
                 shift 2
                 ;;
             -s|--ssl)

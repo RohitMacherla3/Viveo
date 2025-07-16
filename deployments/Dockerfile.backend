@@ -38,8 +38,9 @@ RUN pip install --no-cache-dir watchdog
 
 # Copy only necessary files for development
 COPY app/ ./app/
-COPY data/ ./data/ 2>/dev/null || mkdir -p ./data
-COPY logs/ ./logs/ 2>/dev/null || mkdir -p ./logs
+COPY data/ ./data/
+COPY logs/ ./logs/
+
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/logs \
