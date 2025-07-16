@@ -4,6 +4,11 @@ A nutrition tracking application with AI-powered food logging, supporting both d
 
 ## 🚀 Quick Start
 
+### mac testing
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
+
+serve .
+
 ### Development Mode (Mac/Local)
 ```bash
 # Clone the repository

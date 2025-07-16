@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Viveo Unified Deployment Script
+# Located in deployments/ folder at same level as app/
 # Supports both Mac development and Proxmox server production
 
 set -e
@@ -18,6 +19,22 @@ UI_PATH="/viveo"
 DOMAIN="localhost"
 SSL_ENABLED=false
 CLAUDE_API_KEY=""
+
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Verify we're in the right location
+if [[ ! -d "$PROJECT_ROOT/app" ]] || [[ ! -d "$SCRIPT_DIR" ]]; then
+    error "Script must be run from the deployments/ directory"
+    error "Current structure should be:"
+    error "  project-root/"
+    error "  ├── app/"
+    error "  ├── deployments/  <- you are here"
+    error "  ├── frontend/"
+    error "  └── ..."
+    exit 1
+fi
 
 # Logging functions
 log() {
@@ -44,7 +61,6 @@ OPTIONS:
     -p, --path PATH         UI path (default: /viveo)
     -d, --domain DOMAIN     Domain name (default: localhost)
     -s, --ssl               Enable SSL/HTTPS (prod mode only)
-    -k, --claude-key KEY    Claude API key
     -h, --help              Show this help
 
 COMMANDS:
@@ -58,10 +74,8 @@ COMMANDS:
     backup                  Create backup
 
 EXAMPLES:
-    $0                                          # Mac development mode
     $0 --mode dev                              # Explicit dev mode
     $0 --mode prod --domain myapp.com --ssl   # Production with SSL
-    $0 --mode prod --claude-key sk-xxx...     # Production with API key
 
 EOF
 }
@@ -70,7 +84,7 @@ EOF
 set_config() {
     case $MODE in
         "dev")
-            COMPOSE_FILE="docker-compose.dev.yml"
+            COMPOSE_FILE="$SCRIPT_DIR/docker-compose.dev.yml"
             CONTAINER_SUFFIX="-dev"
             FRONTEND_PORT="3001"
             BACKEND_PORT="8001"
@@ -78,11 +92,12 @@ set_config() {
             NGINX_HTTP_PORT="8080"
             NGINX_HTTPS_PORT="8443"
             DEBUG_MODE="true"
-            ENV_FILE=".env.dev"
+            ENV_FILE="$PROJECT_ROOT/app/.env"
+            DOCKER_TARGET="development"
             log "🍎 Mac Development Mode"
             ;;
         "prod")
-            COMPOSE_FILE="docker-compose.prod.yml"
+            COMPOSE_FILE="$SCRIPT_DIR/docker-compose.prod.yml"
             CONTAINER_SUFFIX=""
             FRONTEND_PORT="3000"
             BACKEND_PORT="8000"
@@ -90,7 +105,8 @@ set_config() {
             NGINX_HTTP_PORT="80"
             NGINX_HTTPS_PORT="443"
             DEBUG_MODE="false"
-            ENV_FILE=".env.prod"
+            ENV_FILE="$PROJECT_ROOT/app/.env"
+            DOCKER_TARGET="production"
             log "🚀 Production Server Mode"
             ;;
         *)
@@ -125,7 +141,7 @@ services:
       - "${MYSQL_PORT}:3306"
     volumes:
       - mysql_data${CONTAINER_SUFFIX}:/var/lib/mysql
-      - ./mysql/init:/docker-entrypoint-initdb.d
+      - ../mysql/init:/docker-entrypoint-initdb.d
     networks:
       - viveo-network${CONTAINER_SUFFIX}
     healthcheck:
@@ -136,10 +152,9 @@ services:
   # Backend API
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
-      args:
-        - MODE=${MODE}
+      context: ..
+      dockerfile: deployments/Dockerfile.backend
+      target: ${MODE}elopment
     container_name: viveo-backend${CONTAINER_SUFFIX}
     restart: unless-stopped
     env_file:
@@ -151,14 +166,14 @@ services:
     ports:
       - "${BACKEND_PORT}:8000"
     volumes:
-      - ./data:/app/data
+      - ../data:/app/data
       - backend_logs${CONTAINER_SUFFIX}:/app/logs
 EOF
 
     # Add volume mounts for dev mode only
     if [[ "$MODE" == "dev" ]]; then
         cat >> $COMPOSE_FILE << EOF
-      - ./app:/app/app:ro  # Mount source for hot reload
+      - ../app:/app/app:ro  # Mount source for hot reload
 EOF
     fi
 
@@ -177,10 +192,10 @@ EOF
   # Frontend
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: ../frontend
+      dockerfile: ../deployment/Dockerfile.frontend
+      target: ${DOCKER_TARGET}
       args:
-        - MODE=${MODE}
         - API_BASE_URL=${UI_PATH}/api
     container_name: viveo-frontend${CONTAINER_SUFFIX}
     restart: unless-stopped
@@ -195,7 +210,7 @@ EOF
     if [[ "$MODE" == "dev" ]]; then
         cat >> $COMPOSE_FILE << EOF
     volumes:
-      - ./frontend:/app:ro  # Mount source for development
+      - ../frontend:/app:ro  # Mount source for development
 EOF
     fi
 
@@ -252,9 +267,9 @@ EOF
 generate_nginx_config() {
     log "Generating nginx configuration for $MODE mode..."
     
-    mkdir -p nginx
+    mkdir -p "$SCRIPT_DIR/nginx"
     
-    cat > nginx/nginx.${MODE}.conf << EOF
+    cat > "$SCRIPT_DIR/nginx/nginx.${MODE}.conf" << EOF
 events {
     worker_connections 1024;
 }
@@ -370,7 +385,7 @@ http {
 EOF
 
     if [[ "$SSL_ENABLED" == true ]]; then
-        cat >> nginx/nginx.${MODE}.conf << EOF
+        cat >> "$SCRIPT_DIR/nginx/nginx.${MODE}.conf" << EOF
 
     # HTTPS server block
     server {
@@ -435,76 +450,59 @@ EOF
 EOF
     fi
 
-    cat >> nginx/nginx.${MODE}.conf << EOF
+    cat >> "$SCRIPT_DIR/nginx/nginx.${MODE}.conf" << EOF
 }
 EOF
 }
 
-# Generate environment files
-generate_env_files() {
-    log "Generating environment files..."
+# Check and validate environment files
+check_env_files() {
+    log "Checking environment configuration..."
     
-    # Generate random values
-    SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "your-super-secret-key-change-in-production")
-    MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16 2>/dev/null || echo "viveo_root_pass")
-    MYSQL_PASSWORD=$(openssl rand -hex 16 2>/dev/null || echo "viveo_pass")
+    # Check if app/.env exists
+    if [[ ! -f "$ENV_FILE" ]]; then
+        error "Environment file not found: $ENV_FILE"
+        log "Please create $ENV_FILE with the following variables:"
+        log "  SECRET_KEY=your-secret-key"
+        log "  ALGORITHM=HS256"
+        log "  ACCESS_TOKEN_EXPIRE_MINUTES=30"
+        log "  CLAUDE_API_KEY=your-claude-key"
+        log "  OPENAI_API_KEY=your-openai-key"
+        log "  MYSQL_ROOT_PASSWORD=your-mysql-root-password"
+        log "  MYSQL_DATABASE=viveo_db"
+        log "  MYSQL_USER=viveo_user"
+        log "  MYSQL_PASSWORD=your-mysql-password"
+        exit 1
+    fi
     
-    # Development environment
-    cat > .env.dev << EOF
-# Development Environment Configuration
-MODE=dev
-DEBUG=true
-
-# Database Configuration
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_DATABASE=viveo_db
-MYSQL_USER=viveo_user
-MYSQL_PASSWORD=${MYSQL_PASSWORD}
-
-# Application Configuration
-SECRET_KEY=${SECRET_KEY}
-CLAUDE_API_KEY=${CLAUDE_API_KEY:-your_claude_api_key_here}
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# MongoDB (legacy support)
-MONGO_DB_USR=dummy_user
-MONGO_DB_PWD=dummy_password
-
-# Python Configuration
-PYTHONPATH=/app
-EOF
-
-    # Production environment
-    cat > .env.prod << EOF
-# Production Environment Configuration
-MODE=prod
-DEBUG=false
-
-# Database Configuration
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_DATABASE=viveo_db
-MYSQL_USER=viveo_user
-MYSQL_PASSWORD=${MYSQL_PASSWORD}
-
-# Application Configuration
-SECRET_KEY=${SECRET_KEY}
-CLAUDE_API_KEY=${CLAUDE_API_KEY:-your_claude_api_key_here}
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# MongoDB (legacy support)
-MONGO_DB_USR=dummy_user
-MONGO_DB_PWD=dummy_password
-
-# Python Configuration
-PYTHONPATH=/app
-EOF
-
-    log "Environment files created: .env.dev and .env.prod"
-    if [[ -z "$CLAUDE_API_KEY" ]]; then
-        warn "Please set your Claude API key with: --claude-key sk-xxx..."
-        warn "Or edit ${ENV_FILE} manually"
+    log "✓ Found environment file: $ENV_FILE"
+    
+    # Source the env file to check for required variables
+    set -a  # automatically export all variables
+    source "$ENV_FILE"
+    set +a
+    
+    # Check for required variables
+    local missing_vars=()
+    
+    [[ -z "$SECRET_KEY" ]] && missing_vars+=("SECRET_KEY")
+    [[ -z "$CLAUDE_API_KEY" ]] && missing_vars+=("CLAUDE_API_KEY")
+    [[ -z "$OPENAI_API_KEY" ]] && missing_vars+=("OPENAI_API_KEY")
+    
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        warn "Missing required environment variables: ${missing_vars[*]}"
+        warn "Please add them to $ENV_FILE"
+    else
+        log "✓ All required environment variables are present"
+    fi
+    
+    # Override with command line arguments if provided
+    if [[ -n "$CLAUDE_API_KEY" ]]; then
+        log "Using Claude API key from command line"
+    fi
+    
+    if [[ -n "$OPENAI_API_KEY" ]]; then
+        log "Using OpenAI API key from command line"
     fi
 }
 
@@ -512,19 +510,19 @@ EOF
 setup_environment() {
     log "Setting up environment..."
     
-    # Create necessary directories
-    mkdir -p data/{users,vectors} logs nginx/ssl mysql/init frontend
+    # Create necessary directories relative to project root
+    mkdir -p "$PROJECT_ROOT/data/{users,vectors}" "$PROJECT_ROOT/logs" "$SCRIPT_DIR/nginx/ssl" "$PROJECT_ROOT/mysql/init" "$PROJECT_ROOT/frontend"
     
     # Set proper permissions
-    chmod 755 data logs 2>/dev/null || true
+    chmod 755 "$PROJECT_ROOT/data" "$PROJECT_ROOT/logs" 2>/dev/null || true
     
     # Generate SSL certificates for development if needed
-    if [[ "$SSL_ENABLED" == true ]] && [[ ! -f nginx/ssl/cert.pem ]]; then
+    if [[ "$SSL_ENABLED" == true ]] && [[ ! -f "$SCRIPT_DIR/nginx/ssl/cert.pem" ]]; then
         log "Generating self-signed SSL certificates..."
-        mkdir -p nginx/ssl
+        mkdir -p "$SCRIPT_DIR/nginx/ssl"
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout nginx/ssl/key.pem \
-            -out nginx/ssl/cert.pem \
+            -keyout "$SCRIPT_DIR/nginx/ssl/key.pem" \
+            -out "$SCRIPT_DIR/nginx/ssl/cert.pem" \
             -subj "/C=US/ST=State/L=City/O=Viveo/CN=${DOMAIN}" 2>/dev/null || true
     fi
 }
@@ -533,12 +531,15 @@ setup_environment() {
 deploy_services() {
     log "Deploying services in $MODE mode..."
     
+    # Change to deployments directory for docker-compose
+    cd "$SCRIPT_DIR"
+    
     # Stop existing services
-    docker-compose -f $COMPOSE_FILE down 2>/dev/null || true
+    docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
     
     # Build and start services
-    docker-compose -f $COMPOSE_FILE build
-    docker-compose -f $COMPOSE_FILE up -d
+    docker-compose -f "$COMPOSE_FILE" build
+    docker-compose -f "$COMPOSE_FILE" up -d
     
     # Wait for services
     log "Waiting for services to be ready..."
@@ -554,9 +555,9 @@ check_services() {
     local services_healthy=true
     
     # Check containers
-    containers=$(docker-compose -f $COMPOSE_FILE ps --services)
+    containers=$(docker-compose -f "$COMPOSE_FILE" ps --services)
     for service in $containers; do
-        if docker-compose -f $COMPOSE_FILE ps $service | grep -q "Up"; then
+        if docker-compose -f "$COMPOSE_FILE" ps $service | grep -q "Up"; then
             log "✓ $service is running"
         else
             error "✗ $service is not running"
@@ -599,39 +600,45 @@ check_services() {
 # Other functions
 show_logs() {
     local service=${1:-}
+    cd "$SCRIPT_DIR"
     if [[ -n "$service" ]]; then
-        docker-compose -f $COMPOSE_FILE logs -f $service
+        docker-compose -f "$COMPOSE_FILE" logs -f $service
     else
-        docker-compose -f $COMPOSE_FILE logs -f
+        docker-compose -f "$COMPOSE_FILE" logs -f
     fi
 }
 
 stop_services() {
     log "Stopping services..."
-    docker-compose -f $COMPOSE_FILE down
+    cd "$SCRIPT_DIR"
+    docker-compose -f "$COMPOSE_FILE" down
 }
 
 restart_services() {
     log "Restarting services..."
-    docker-compose -f $COMPOSE_FILE restart
+    cd "$SCRIPT_DIR"
+    docker-compose -f "$COMPOSE_FILE" restart
 }
 
 show_status() {
-    docker-compose -f $COMPOSE_FILE ps
+    cd "$SCRIPT_DIR"
+    docker-compose -f "$COMPOSE_FILE" ps
 }
 
 update_services() {
     log "Updating services..."
-    docker-compose -f $COMPOSE_FILE down
-    docker-compose -f $COMPOSE_FILE build --no-cache
-    docker-compose -f $COMPOSE_FILE up -d
+    cd "$SCRIPT_DIR"
+    docker-compose -f "$COMPOSE_FILE" down
+    docker-compose -f "$COMPOSE_FILE" build --no-cache
+    docker-compose -f "$COMPOSE_FILE" up -d
     sleep 30
     check_services
 }
 
 cleanup_services() {
     log "Cleaning up..."
-    docker-compose -f $COMPOSE_FILE down -v
+    cd "$SCRIPT_DIR"
+    docker-compose -f "$COMPOSE_FILE" down -v
     docker system prune -f
     docker volume prune -f
 }
@@ -639,23 +646,25 @@ cleanup_services() {
 create_backup() {
     log "Creating backup..."
     
-    BACKUP_DIR="./backups/$(date +%Y%m%d_%H%M%S)"
+    BACKUP_DIR="$PROJECT_ROOT/backups/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$BACKUP_DIR"
     
+    cd "$SCRIPT_DIR"
+    
     # Backup database
-    if docker-compose -f $COMPOSE_FILE ps mysql | grep -q "Up"; then
+    if docker-compose -f "$COMPOSE_FILE" ps mysql | grep -q "Up"; then
         log "Backing up database..."
-        docker-compose -f $COMPOSE_FILE exec -T mysql mysqladmin ping -h localhost > /dev/null 2>&1
-        docker-compose -f $COMPOSE_FILE exec -T mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD:-viveo_root_password} viveo_db > "$BACKUP_DIR/database.sql" 2>/dev/null || warn "Database backup failed"
+        docker-compose -f "$COMPOSE_FILE" exec -T mysql mysqladmin ping -h localhost > /dev/null 2>&1
+        docker-compose -f "$COMPOSE_FILE" exec -T mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD:-viveo_root_password} viveo_db > "$BACKUP_DIR/database.sql" 2>/dev/null || warn "Database backup failed"
     fi
     
     # Backup data directory
-    if [[ -d data ]]; then
-        tar -czf "$BACKUP_DIR/data.tar.gz" data/
+    if [[ -d "$PROJECT_ROOT/data" ]]; then
+        tar -czf "$BACKUP_DIR/data.tar.gz" -C "$PROJECT_ROOT" data/
     fi
     
     # Backup environment files
-    cp .env.* "$BACKUP_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR"/.env.* "$BACKUP_DIR/" 2>/dev/null || true
     
     log "Backup created at: $BACKUP_DIR"
 }
@@ -678,6 +687,10 @@ parse_args() {
                 ;;
             -k|--claude-key)
                 CLAUDE_API_KEY="$2"
+                shift 2
+                ;;
+            --openai-key)
+                OPENAI_API_KEY="$2"
                 shift 2
                 ;;
             -s|--ssl)
@@ -739,7 +752,7 @@ main() {
     case ${COMMAND:-start} in
         "start")
             setup_environment
-            generate_env_files
+            check_env_files
             generate_compose_file
             generate_nginx_config
             deploy_services

@@ -1,42 +1,45 @@
-# Viveo - Calorie Tracking Application
+# Viveo - AI-Powered Calorie Tracking Application
 
-A comprehensive nutrition tracking application with AI-powered food logging and analysis.
+A comprehensive nutrition tracking application with AI-powered food logging, vector-based search, and intelligent nutrition analysis.
 
 ## 🏗️ Architecture
 
 - **Backend**: FastAPI (Python 3.13) with MySQL database
-- **Frontend**: Static HTML/CSS/JavaScript served by nginx
-- **AI**: Claude 3.5 Haiku for nutrition analysis
-- **Deployment**: Docker Compose with nginx reverse proxy
-- **Storage**: MySQL for user data, local files for vector store
+- **Frontend**: Static HTML/CSS/JavaScript with modern UI
+- **AI**: Claude 3.5 Sonnet/Haiku for nutrition analysis + OpenAI embeddings for vector search
+- **Deployment**: Multi-stage Docker with nginx reverse proxy
+- **Storage**: MySQL for structured data, local vector store for semantic search
 
 ## 📋 Prerequisites
 
 - Docker and Docker Compose
-- Proxmox server or any Linux server
+- Linux server (Proxmox, Ubuntu, etc.) or Mac for development
 - Claude API key from Anthropic
-- At least 2GB available disk space
-- Ports 80, 443, 3000, 8000, 3306 available
+- OpenAI API key for embeddings
+- At least 4GB available disk space
+- Ports available: 80, 443 (prod) or 8080, 3001, 8001, 3307 (dev)
 
 ## 🚀 Quick Deployment
 
 ### 1. Clone and Setup
 
 ```bash
-# Create project directory
-mkdir viveo-app && cd viveo-app
+# Clone the repository (or create project directory)
+git clone <your-repo> viveo
+cd viveo
 
-# Download deployment files (or clone your repository)
-# Place all the provided files in this directory
+# Or if you have the files locally:
+# mkdir viveo && cd viveo
+# (copy all your project files here)
 ```
 
 ### 2. Directory Structure
 
-Your project should have this structure (matching your current layout):
+Your project has this structure:
 
 ```
-viveo-app/
-├── app/                          # Backend application (your structure)
+viveo/
+├── app/                          # Backend Python application
 │   ├── api/
 │   │   └── routes/
 │   │       ├── __init__.py
@@ -49,7 +52,7 @@ viveo-app/
 │   │   ├── ai_client.py
 │   │   ├── security.py
 │   │   ├── utils.py
-│   │   └── vector_store.py
+│   │   └── vector_store.py      # Updated with OpenAI embeddings
 │   ├── database/
 │   │   ├── __init__.py
 │   │   ├── models.py
@@ -59,10 +62,11 @@ viveo-app/
 │   │   ├── __init__.py
 │   │   ├── food_processor.py
 │   │   └── rag_service.py
-│   ├── main.py                   # Your FastAPI app (in app/ directory)
-│   ├── config.py                 # Your config (in app/ directory)
-│   └── settings.py               # Your settings (in app/ directory)
-├── frontend/                     # Frontend files
+│   ├── main.py
+│   ├── config.py
+│   ├── settings.py
+│   └── .env                     # Your main environment file
+├── frontend/                    # Frontend static files
 │   ├── index.html
 │   ├── config.js
 │   ├── auth.js
@@ -71,319 +75,322 @@ viveo-app/
 │   ├── calendar.js
 │   ├── app.js
 │   ├── aiChat.js
-│   ├── package.json
-│   └── Dockerfile
-├── data/                         # Application data (your vector store)
-│   ├── users/
-│   └── vectors/
-├── nginx/                        # Nginx configuration
-│   ├── nginx.conf
-│   └── ssl/
-├── mysql/                        # MySQL initialization
+│   └── styles.css              # CSS styles
+├── deployment/                  # Deployment configuration
+│   ├── deploy.sh               # Main deployment script
+│   ├── Dockerfile.backend      # Backend Dockerfile
+│   ├── Dockerfile.frontend     # Frontend Dockerfile
+│   ├── docker-compose.yml      # Generated compose files
+│   ├── backup.sh               # Backup script
+│   ├── health_check.sh         # Health monitoring script
+│   ├── install_docker.sh       # Docker installation script
+│   └── nginx/                  # Generated nginx configs
+├── data/                       # Application data
+│   ├── users/                  # User-specific food logs
+│   └── vectors/                # Vector embeddings storage
+├── logs/                       # Application logs
+├── mysql/                      # MySQL initialization scripts
 │   └── init/
-│       └── 01-init.sql
-├── docker-compose.yml
-├── Dockerfile.backend
-├── .env.example
-├── deploy.sh
-├── requirements.txt              # Your Python dependencies
+├── requirements.txt            # Python dependencies
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 ### 3. Configuration
 
 ```bash
-# Make deploy script executable
-chmod +x deploy.sh
+# Ensure your app/.env file exists with required variables
+ls -la app/.env
 
-# Copy environment template
-cp .env.example .env
+# If it doesn't exist, create it:
+cat > app/.env << EOF
+# Application Configuration
+SECRET_KEY=your-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Edit environment variables
-nano .env
-```
+# API Keys
+CLAUDE_API_KEY=sk-ant-your-claude-key-here
+OPENAI_API_KEY=sk-your-openai-key-here
 
-**Required environment variables:**
-```bash
-# Add your Claude API key
-CLAUDE_API_KEY=sk-ant-your-api-key-here
-
-# Database passwords (auto-generated by deploy script)
-MYSQL_ROOT_PASSWORD=your-generated-password
-MYSQL_PASSWORD=your-generated-password
-
-# JWT secret (auto-generated by deploy script)
-SECRET_KEY=your-generated-secret-key
+# Database Configuration
+MYSQL_ROOT_PASSWORD=your-mysql-root-password
+MYSQL_DATABASE=viveo_db
+MYSQL_USER=viveo_user
+MYSQL_PASSWORD=your-mysql-password
+EOF
 ```
 
 ### 4. Deploy
 
-```bash
-# Run deployment script
-./deploy.sh
+Navigate to the deployment directory and run the deployment script:
 
-# Or with SSL support
-./deploy.sh --ssl
+```bash
+# Go to deployment folder
+cd deployment
+
+# Make script executable
+chmod +x deploy.sh
+
+# Deploy in development mode (Mac/local development)
+./deploy.sh --mode dev
+
+# Deploy in production mode
+./deploy.sh --mode prod --domain yourdomain.com
+
+# Deploy with SSL (production only)
+./deploy.sh --mode prod --domain yourdomain.com --ssl
+
+# Override API keys via command line if needed
+./deploy.sh --mode dev --claude-key sk-ant-xxx --openai-key sk-xxx
 ```
 
 ### 5. Access Application
 
-- **Frontend**: http://your-server-ip
-- **API**: http://your-server-ip/api
-- **Health Check**: http://your-server-ip/api/health
+**Development Mode:**
+- **Frontend**: http://localhost:8080/viveo/
+- **API**: http://localhost:8080/viveo/api/
+- **Health Check**: http://localhost:8080/viveo/health
+- **Direct Backend**: http://localhost:8001
+- **Direct Frontend**: http://localhost:3001
 
-## 🔧 Manual Deployment Steps
+**Production Mode:**
+- **Frontend**: http://your-domain/viveo/
+- **API**: http://your-domain/viveo/api/
+- **Health Check**: http://your-domain/viveo/health
 
-If you prefer manual deployment:
+## 🛠️ Development Workflow
 
-### 1. Setup Environment
-
-```bash
-# Create directories
-mkdir -p data/{users,vectors} logs nginx/ssl mysql/init frontend
-
-# Copy environment file
-cp .env.example .env
-
-# Edit with your settings
-nano .env
-```
-
-### 2. Build and Start Services
+### Local Development Setup
 
 ```bash
-# Build images
-docker-compose build
+# Start development environment
+cd deployment
+./deploy.sh --mode dev
 
-# Start services
-docker-compose up -d
+# Watch logs
+./deploy.sh logs
 
-# Check status
-docker-compose ps
+# Restart specific service
+./deploy.sh restart
+
+# Stop all services
+./deploy.sh stop
 ```
 
-### 3. Verify Deployment
+### Development Features
 
-```bash
-# Check logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
+- **Hot Reload**: Backend automatically reloads on code changes
+- **Volume Mounts**: Source code is mounted for live development
+- **Debug Logging**: Enhanced logging in development mode
+- **CORS Enabled**: Frontend can make requests to backend
 
-# Test API
-curl http://localhost/api/health
-
-# Test frontend
-curl http://localhost
-```
-
-## 📊 Management Commands
+## 🔧 Management Commands
 
 ### Service Management
 
 ```bash
-# View logs
-docker-compose logs -f [service-name]
+cd deployment
 
-# Restart service
-docker-compose restart [service-name]
+# View logs for all services
+./deploy.sh logs
+
+# View logs for specific service
+./deploy.sh logs backend
+./deploy.sh logs frontend
+./deploy.sh logs mysql
+
+# Check service status
+./deploy.sh status
+
+# Restart all services
+./deploy.sh restart
+
+# Update and rebuild services
+./deploy.sh update
 
 # Stop all services
-docker-compose down
+./deploy.sh stop
 
-# Update application
-./deploy.sh --update
-
-# Check service health
-./deploy.sh --health
+# Clean up old data and images
+./deploy.sh cleanup
 ```
 
 ### Backup and Restore
 
 ```bash
 # Create backup
-./backup.sh
+./deploy.sh backup
 
-# Setup automated backups (add to crontab)
-crontab -e
-# Add: 0 2 * * * /path/to/viveo/backup.sh
+# Manual database backup
+docker-compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p viveo_db > backup.sql
 
-# Restore from backup
-docker exec -i viveo-mysql mysql -u root -p viveo_db < backup_file.sql
+# Restore database
+docker-compose -f docker-compose.prod.yml exec -T mysql mysql -u root -p viveo_db < backup.sql
 ```
 
-### Monitoring
+## 🔒 Security Configuration
 
-```bash
-# Check resource usage
-docker stats
+### Production Security Checklist
 
-# View disk usage
-df -h
-
-# Clean up old data
-./deploy.sh --cleanup
-
-# Monitor logs in real-time
-tail -f logs/*.log
-```
-
-## 🔒 Security Considerations
-
-### Production Setup
-
-1. **Change Default Passwords**
+1. **Strong Environment Variables**
    ```bash
-   # Generate secure passwords
-   openssl rand -hex 32
+   # Generate secure secrets
+   openssl rand -hex 32  # For SECRET_KEY
+   openssl rand -hex 16  # For database passwords
    ```
 
-2. **Setup SSL Certificates**
+2. **SSL Configuration**
    ```bash
-   # Use Let's Encrypt for free SSL
+   # Deploy with SSL
+   ./deploy.sh --mode prod --domain yourdomain.com --ssl
+   
+   # Or configure Let's Encrypt manually
    certbot --nginx -d yourdomain.com
    ```
 
-3. **Configure Firewall**
+3. **Firewall Setup**
    ```bash
    # Allow only necessary ports
    ufw allow 80
    ufw allow 443
-   ufw deny 3000
-   ufw deny 8000
-   ufw deny 3306
+   ufw deny 3000    # Block direct frontend access
+   ufw deny 8000    # Block direct backend access
+   ufw deny 3306    # Block direct database access
    ```
 
-4. **Secure Database**
+4. **Database Security**
    ```bash
-   # Run MySQL security script
-   docker exec -it viveo-mysql mysql_secure_installation
+   # Access MySQL container
+   docker exec -it viveo-mysql mysql -u root -p
+   
+   # Change default passwords
+   ALTER USER 'root'@'localhost' IDENTIFIED BY 'new_secure_password';
    ```
 
-### Environment Variables
+### Required Environment Variables
 
-Ensure these are set securely:
+Your `app/.env` must contain:
 
 ```bash
-# Strong JWT secret (64+ characters)
-SECRET_KEY=your-very-long-random-secret-key
+# Core Application
+SECRET_KEY=64-character-random-string
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Secure database passwords
-MYSQL_ROOT_PASSWORD=strong-password
-MYSQL_PASSWORD=another-strong-password
+# AI Services
+CLAUDE_API_KEY=sk-ant-your-claude-key
+OPENAI_API_KEY=sk-your-openai-key
 
-# Production settings
-ENVIRONMENT=production
-DEBUG=false
+# Database
+MYSQL_ROOT_PASSWORD=secure-root-password
+MYSQL_DATABASE=viveo_db
+MYSQL_USER=viveo_user
+MYSQL_PASSWORD=secure-user-password
 ```
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **Service won't start**
+1. **Environment File Not Found**
    ```bash
+   # Check if app/.env exists
+   ls -la app/.env
+   
+   # Create it if missing (see Configuration section above)
+   ```
+
+2. **Services Won't Start**
+   ```bash
+   cd deployment
+   
    # Check logs
-   docker-compose logs [service-name]
+   ./deploy.sh logs
    
-   # Check resources
+   # Check Docker resources
    docker system df
-   free -h
+   docker stats
    ```
 
-2. **Database connection errors**
+3. **Database Connection Errors**
    ```bash
-   # Verify MySQL is running
-   docker exec viveo-mysql mysqladmin ping
+   # Test MySQL connection
+   docker exec viveo-mysql mysqladmin ping -h localhost
    
-   # Check database exists
-   docker exec -it viveo-mysql mysql -u root -p -e "SHOW DATABASES;"
-   ```
-
-3. **API returns 500 errors**
-   ```bash
-   # Check backend logs
-   docker-compose logs backend
+   # Check MySQL logs
+   ./deploy.sh logs mysql
    
    # Verify environment variables
-   docker exec viveo-backend env | grep -E "(DATABASE_URL|CLAUDE_API_KEY)"
+   docker exec viveo-backend env | grep DATABASE_URL
    ```
 
-4. **Frontend not loading**
+4. **API Returns 500 Errors**
+   ```bash
+   # Check backend logs
+   ./deploy.sh logs backend
+   
+   # Verify API keys are set
+   docker exec viveo-backend env | grep -E "(CLAUDE_API_KEY|OPENAI_API_KEY)"
+   
+   # Test health endpoint
+   curl http://localhost:8080/viveo/health
+   ```
+
+5. **Frontend Not Loading**
    ```bash
    # Check nginx configuration
    docker exec viveo-nginx nginx -t
    
+   # Check frontend logs
+   ./deploy.sh logs frontend
+   
    # Restart nginx
-   docker-compose restart nginx
+   ./deploy.sh restart
    ```
 
-### Performance Optimization
+### Port Conflicts
 
-1. **Database Optimization**
-   ```sql
-   -- Add indexes for better performance
-   CREATE INDEX idx_food_entries_user_date ON food_entries(user_id, entry_date);
-   CREATE INDEX idx_users_active ON users(disabled, last_login);
-   ```
-
-2. **Resource Limits**
-   ```yaml
-   # Add to docker-compose.yml
-   services:
-     backend:
-       deploy:
-         resources:
-           limits:
-             memory: 512M
-             cpus: '0.5'
-   ```
-
-## 📈 Monitoring and Alerts
-
-### Setup Monitoring
+If you get port conflicts:
 
 ```bash
-# Add monitoring to crontab
-crontab -e
+# Check what's using ports
+sudo netstat -tulpn | grep :8080
+sudo netstat -tulpn | grep :3306
 
-# Check services every 5 minutes
-*/5 * * * * /path/to/viveo/health_check.sh
-
-# Backup daily at 2 AM
-0 2 * * * /path/to/viveo/backup.sh
-
-# Cleanup weekly
-0 3 * * 0 /path/to/viveo/deploy.sh --cleanup
+# Stop conflicting services
+sudo systemctl stop apache2  # If Apache is running
+sudo systemctl stop mysql    # If MySQL is running locally
 ```
 
-### Log Rotation
+## 📊 Monitoring and Maintenance
+
+### Health Monitoring
 
 ```bash
-# Setup logrotate
-sudo nano /etc/logrotate.d/viveo
+# Check all services
+./deploy.sh status
 
-# Add configuration
-/path/to/viveo/logs/*.log {
-    daily
-    missingok
-    rotate 7
-    compress
-    notifempty
-    copytruncate
-}
+# Test API health
+curl http://localhost:8080/viveo/health
+
+# Monitor resource usage
+docker stats viveo-backend viveo-frontend viveo-mysql
 ```
 
-## 🔄 Updates and Maintenance
-
-### Regular Updates
+### Log Management
 
 ```bash
-# Update application
-./deploy.sh --update
+# View live logs
+./deploy.sh logs
 
-# Update Docker images
-docker-compose pull
-docker-compose up -d
+# Check log sizes
+du -sh logs/
+docker system df
+
+# Clean up logs
+truncate -s 0 logs/*.log
 ```
 
 ### Database Maintenance
@@ -392,19 +399,95 @@ docker-compose up -d
 # Optimize database
 docker exec viveo-mysql mysqlcheck -u root -p --optimize viveo_db
 
-# Backup before major updates
-./backup.sh
+# Check database size
+docker exec viveo-mysql mysql -u root -p -e "
+SELECT 
+    table_schema AS 'Database',
+    ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)'
+FROM information_schema.tables 
+WHERE table_schema = 'viveo_db';"
 ```
+
+## 🔄 Updates and Deployment
+
+### Updating the Application
+
+```bash
+cd deployment
+
+# Pull latest code
+git pull origin main
+
+# Update and restart services
+./deploy.sh update
+
+# Or rebuild from scratch
+./deploy.sh stop
+./deploy.sh cleanup
+./deploy.sh start
+```
+
+### Database Migrations
+
+```bash
+# Backup before migrations
+./deploy.sh backup
+
+# Run any database updates
+docker exec -it viveo-backend python -m alembic upgrade head
+```
+
+## 🎯 Features
+
+### AI-Powered Features
+- **Smart Food Recognition**: Claude analyzes natural language food descriptions
+- **Semantic Search**: OpenAI embeddings enable intelligent food log search
+- **Nutrition Analysis**: AI-powered macro and micronutrient breakdown
+- **Personalized Insights**: AI provides customized nutrition recommendations
+
+### Technical Features
+- **Vector Search**: Find similar meals and ingredients using semantic similarity
+- **Multi-stage Docker**: Optimized containers for development and production
+- **Reverse Proxy**: Nginx handles routing, SSL, and static file serving
+- **Health Checks**: Built-in monitoring for all services
+- **Hot Reload**: Development mode supports live code updates
 
 ## 📞 Support
 
-For issues or questions:
+### Getting Help
 
-1. Check the logs: `docker-compose logs -f`
-2. Review this README
-3. Check environment variables
-4. Verify all services are running: `docker-compose ps`
+1. **Check the logs**: `./deploy.sh logs [service]`
+2. **Verify configuration**: Ensure `app/.env` has all required variables
+3. **Test connectivity**: Use health check endpoints
+4. **Resource check**: Monitor Docker resource usage
+5. **Port availability**: Ensure no conflicts with other services
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+export DEBUG=true
+
+# Run with verbose output
+./deploy.sh --mode dev 2>&1 | tee deployment.log
+```
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test in development mode
+5. Submit a pull request
+
+---
+
+**Quick Start Summary:**
+1. Ensure `app/.env` exists with API keys
+2. `cd deployment && chmod +x deploy.sh`
+3. `./deploy.sh --mode dev` (for development)
+4. Access at `http://localhost:8080/viveo/`

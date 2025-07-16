@@ -46,13 +46,27 @@ function checkExistingLogin() {
         } catch (error) {
             debugLog('Error loading saved user:', error);
             localStorage.removeItem('viveo_user');
+            // Show login screen if saved user data is invalid
+            showLoginScreen();
         }
+    } else {
+        // No saved user, show login screen
+        showLoginScreen();
     }
 }
 
 // Handle user login actions
 function onUserLogin() {
-    debugLog('User login handler called');
+    debugLog('User login handler called for:', currentUser?.username);
+    
+    // Only proceed if we have a valid user
+    if (!currentUser) {
+        debugLog('No current user found, skipping login actions');
+        return;
+    }
+    
+    // Clear any existing AI chat state first (but keep notifications)
+    clearAiChatStateOnly();
     
     // Load user profile
     loadUserProfile();
@@ -60,15 +74,439 @@ function onUserLogin() {
     // Load today's food entries
     loadTodaysFoodEntries();
     
-    // Initialize AI chat
-    initializeAiChat();
+    // Initialize AI chat fresh for this session
+    initializeAiChatFresh();
     
-    // Show AI notification after delay
+    // Show AI notification after delay (only for logged-in users)
     setTimeout(() => {
-        if (!aiChatOpen) {
+        // Double-check user is still logged in and AI chat is not open
+        if (currentUser && !aiChatOpen) {
+            debugLog('Showing AI notification after login delay');
             showAiNotification();
+        } else {
+            debugLog('Skipping AI notification - user logged out or AI chat already open');
         }
     }, 5000);
+}
+
+// Clear AI chat state completely
+function clearAiChatState() {
+    debugLog('Clearing AI chat state completely...');
+    
+    // Clear AI chat components
+    clearAiChatStateOnly();
+    
+    // Also clear any existing AI notifications
+    const existingNotification = document.getElementById('ai-notification');
+    if (existingNotification) {
+        existingNotification.remove();
+        debugLog('Removed existing AI notification');
+    }
+    
+    debugLog('AI chat state and notifications cleared');
+}
+
+// Clear only AI chat state (keep notifications)
+function clearAiChatStateOnly() {
+    debugLog('Clearing AI chat state only...');
+    
+    // Close AI chat if open
+    if (typeof closeAiChat === 'function') {
+        closeAiChat();
+    }
+    
+    // Reset AI chat variables
+    if (typeof window.aiChatMessages !== 'undefined') {
+        window.aiChatMessages = [];
+    }
+    
+    // Clear AI chat from DOM
+    const aiChatPanel = document.getElementById('aiChatPanel');
+    if (aiChatPanel) {
+        aiChatPanel.remove();
+    }
+    
+    // Clear chat container
+    const chatContainer = document.getElementById('chatContainer');
+    if (chatContainer) {
+        chatContainer.innerHTML = '';
+    }
+    
+    // Reset AI chat state variables
+    window.aiChatOpen = false;
+    window.aiChatInitialized = false;
+    
+    // Clear any AI-related localStorage for this session
+    // (but keep user preferences like notification dismissal unless it's a fresh login)
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('viveo_ai_chat_') && !key.includes('_seen_')) {
+            keysToRemove.push(key);
+        }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+    
+    debugLog('AI chat state cleared (notifications preserved)');
+}
+
+// Initialize AI chat fresh for new session
+function initializeAiChatFresh() {
+    debugLog('Initializing fresh AI chat session...');
+    
+    // IMPORTANT: Only initialize AI chat if user is logged in
+    if (!currentUser) {
+        debugLog('Skipping AI chat initialization - user not logged in');
+        return;
+    }
+    
+    // Ensure AI chat is properly initialized
+    if (typeof initializeAiChat === 'function') {
+        initializeAiChat();
+    } else {
+        // Fallback initialization if function doesn't exist yet
+        window.aiChatMessages = [];
+        window.aiChatOpen = false;
+        window.aiChatInitialized = true;
+        
+        // Create fresh AI chat interface (but don't show it yet)
+        createAiChatInterface();
+    }
+    
+    debugLog('Fresh AI chat session initialized for user:', currentUser.username);
+}
+
+// Create AI chat interface (fallback if not in aiChat.js)
+function createAiChatInterface() {
+    // Only create if it doesn't exist
+    if (document.getElementById('aiChatPanel')) {
+        return;
+    }
+    
+    const aiChatPanel = document.createElement('div');
+    aiChatPanel.id = 'aiChatPanel';
+    aiChatPanel.className = 'ai-chat-panel';
+    aiChatPanel.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 350px;
+        max-height: 500px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        z-index: 1000;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid #e0e0e0;
+    `;
+    
+    aiChatPanel.innerHTML = `
+        <div class="ai-chat-header" style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        ">
+            <span>🤖 AI Assistant</span>
+            <button onclick="closeAiChat()" style="
+                background: none;
+                border: none;
+                color: white;
+                font-size: 18px;
+                cursor: pointer;
+                padding: 0;
+                margin-left: auto;
+            ">×</button>
+        </div>
+        <div id="chatContainer" style="
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            max-height: 300px;
+            min-height: 200px;
+        ">
+            <div class="ai-welcome-message" style="
+                text-align: center;
+                color: #666;
+                font-size: 14px;
+                margin: 20px 0;
+            ">
+                Welcome! Ask me about nutrition, food logging, or meal planning.
+            </div>
+        </div>
+        <div class="ai-chat-input" style="
+            padding: 15px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        ">
+            <input type="text" id="aiChatInput" placeholder="Ask me anything..." style="
+                flex: 1;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                font-size: 14px;
+            ">
+            <button onclick="sendAiMessage()" style="
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+            ">Send</button>
+        </div>
+    `;
+    
+    document.body.appendChild(aiChatPanel);
+    
+    // Add enter key support
+    const chatInput = document.getElementById('aiChatInput');
+    if (chatInput) {
+        chatInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendAiMessage();
+            }
+        });
+    }
+}
+
+// Handle user logout
+function handleUserLogout() {
+    debugLog('User logout initiated');
+    
+    // Clear AI chat state completely (including destroying the chat window)
+    clearAiChatState();
+    
+    // Clear current user
+    currentUser = null;
+    
+    // Clear user-specific data
+    localStorage.removeItem('viveo_user');
+    
+    // Reset app state
+    foodEntries = [];
+    calorieData = { intake: 0, target: 1764, left: 1764 };
+    
+    // Show login screen
+    showLoginScreen();
+    
+    // Clear any notifications
+    dismissAiNotification();
+    
+    debugLog('User logout completed - AI chat window destroyed');
+}
+
+// Show AI notification to encourage users to try the AI assistant
+function showAiNotification() {
+    try {
+        // NOTE: Notification can be shown anywhere, but the chat window requires login
+        
+        // Check if user has dismissed this notification before
+        const hasSeenAiNotification = localStorage.getItem('viveo_seen_ai_notification');
+        
+        if (hasSeenAiNotification) {
+            debugLog('AI notification skipped - user has already seen it');
+            return; // Don't show again if user has seen it
+        }
+        
+        // Check if notification already exists
+        const existingNotification = document.getElementById('ai-notification');
+        if (existingNotification) {
+            debugLog('AI notification already exists, skipping');
+            return;
+        }
+        
+        debugLog('Showing AI notification');
+        
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.id = 'ai-notification';
+        notification.className = 'ai-notification';
+        notification.innerHTML = `
+            <div class="ai-notification-content">
+                <div class="ai-notification-icon">🤖</div>
+                <div class="ai-notification-text">
+                    <strong>Try the AI Assistant!</strong>
+                    <p>Ask me about nutrition, get meal suggestions, or track your food with natural language.</p>
+                </div>
+                <div class="ai-notification-actions">
+                    <button onclick="openAiChatFromNotification()" class="btn-primary">Try Now</button>
+                    <button onclick="dismissAiNotification()" class="btn-secondary">Maybe Later</button>
+                </div>
+            </div>
+        `;
+    
+    // Add styles
+    notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        max-width: 350px;
+        z-index: 1000;
+        animation: slideInFromRight 0.5s ease-out;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+    
+    // Add CSS animation if not already present
+    if (!document.querySelector('#ai-notification-styles')) {
+        const styles = document.createElement('style');
+        styles.id = 'ai-notification-styles';
+        styles.textContent = `
+            @keyframes slideInFromRight {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            
+            .ai-notification-content {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .ai-notification-icon {
+                font-size: 24px;
+                text-align: center;
+            }
+            
+            .ai-notification-text {
+                text-align: center;
+            }
+            
+            .ai-notification-text strong {
+                font-size: 16px;
+                display: block;
+                margin-bottom: 8px;
+            }
+            
+            .ai-notification-text p {
+                margin: 0;
+                font-size: 14px;
+                opacity: 0.9;
+                line-height: 1.4;
+            }
+            
+            .ai-notification-actions {
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+            }
+            
+            .ai-notification .btn-primary {
+                background: rgba(255,255,255,0.2);
+                border: 1px solid rgba(255,255,255,0.3);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s;
+            }
+            
+            .ai-notification .btn-primary:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-1px);
+            }
+            
+            .ai-notification .btn-secondary {
+                background: transparent;
+                border: 1px solid rgba(255,255,255,0.4);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s;
+            }
+            
+            .ai-notification .btn-secondary:hover {
+                background: rgba(255,255,255,0.1);
+            }
+        `;
+        document.head.appendChild(styles);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // Auto-dismiss after 15 seconds
+    setTimeout(() => {
+        dismissAiNotification();
+    }, 15000);
+}
+
+// Open AI chat from notification
+function openAiChatFromNotification() {
+    try {
+        dismissAiNotification();
+        
+        // Mark as seen so we don't show it again
+        localStorage.setItem('viveo_seen_ai_notification', 'true');
+        
+        // IMPORTANT: Check if user is still logged in before opening chat
+        if (!currentUser) {
+            showToastMessage('Please log in to use AI chat', 'error');
+            return;
+        }
+        
+        // Open AI chat (assuming this function exists in aiChat.js)
+        if (typeof openAiChat === 'function') {
+            openAiChat();
+        } else if (typeof toggleAiChat === 'function') {
+            toggleAiChat();
+        } else {
+            // Fallback: just show a message
+            showToastMessage('AI Chat is now available!', 'info');
+        }
+        
+        // Track this event
+        trackEvent('ai_notification_clicked');
+    } catch (error) {
+        debugLog('Error in openAiChatFromNotification:', error);
+        showToastMessage('Error opening AI chat', 'error');
+    }
+}
+
+// Dismiss AI notification
+function dismissAiNotification() {
+    try {
+        const notification = document.getElementById('ai-notification');
+        if (notification) {
+            notification.style.animation = 'slideInFromRight 0.3s ease-in reverse';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+            debugLog('AI notification dismissed');
+        }
+        
+        // Track dismissal
+        trackEvent('ai_notification_dismissed');
+    } catch (error) {
+        debugLog('Error dismissing notification:', error);
+        // Force remove if animation fails
+        const notification = document.getElementById('ai-notification');
+        if (notification && notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
+    }
 }
 
 // Toast notification system
@@ -267,10 +705,12 @@ document.addEventListener('keydown', function(event) {
                 }
                 break;
             case 'j':
-                // Ctrl/Cmd + J: Toggle AI chat
+                // Ctrl/Cmd + J: Toggle AI chat (only if logged in)
                 event.preventDefault();
                 if (currentUser) {
                     toggleAiChat();
+                } else {
+                    showToastMessage('Please log in to use AI chat', 'error');
                 }
                 break;
             case 's':
@@ -289,6 +729,8 @@ document.addEventListener('keydown', function(event) {
         if (aiChatOpen) {
             closeAiChat();
         }
+        // Also close AI notification
+        dismissAiNotification();
     }
 });
 
@@ -375,7 +817,149 @@ window.addEventListener('unhandledrejection', function(event) {
     showToastMessage('Something went wrong. Please try again.', 'error');
 });
 
-// === UTILITY FUNCTIONS ===
+// === AI CHAT FUNCTIONS (fallback implementations) ===
+
+// Toggle AI chat (fallback if not in aiChat.js)
+function toggleAiChat() {
+    // IMPORTANT: Only allow AI chat if user is logged in
+    if (!currentUser) {
+        showToastMessage('Please log in to use AI chat', 'error');
+        return;
+    }
+    
+    const aiPanel = document.getElementById('aiChatPanel');
+    if (!aiPanel) {
+        createAiChatInterface();
+        openAiChat();
+    } else {
+        if (aiPanel.style.display === 'none' || !aiPanel.style.display) {
+            openAiChat();
+        } else {
+            closeAiChat();
+        }
+    }
+}
+
+// Open AI chat
+function openAiChat() {
+    // IMPORTANT: Only allow AI chat if user is logged in
+    if (!currentUser) {
+        showToastMessage('Please log in to use AI chat', 'error');
+        return;
+    }
+    
+    const aiPanel = document.getElementById('aiChatPanel');
+    if (!aiPanel) {
+        createAiChatInterface();
+    }
+    
+    const panel = document.getElementById('aiChatPanel');
+    if (panel) {
+        panel.style.display = 'flex';
+        window.aiChatOpen = true;
+        
+        // Focus on input
+        const input = document.getElementById('aiChatInput');
+        if (input) {
+            setTimeout(() => input.focus(), 100);
+        }
+        
+        trackEvent('ai_chat_opened');
+    }
+}
+
+// Close AI chat
+function closeAiChat() {
+    const aiPanel = document.getElementById('aiChatPanel');
+    if (aiPanel) {
+        aiPanel.style.display = 'none';
+        window.aiChatOpen = false;
+        trackEvent('ai_chat_closed');
+    }
+}
+
+// Send AI message (fallback implementation)
+function sendAiMessage() {
+    // IMPORTANT: Only allow if user is logged in
+    if (!currentUser) {
+        showToastMessage('Please log in to use AI chat', 'error');
+        return;
+    }
+    
+    const input = document.getElementById('aiChatInput');
+    const chatContainer = document.getElementById('chatContainer');
+    
+    if (!input || !chatContainer) return;
+    
+    const message = input.value.trim();
+    if (!message) return;
+    
+    // Clear input
+    input.value = '';
+    
+    // Add user message to chat
+    addMessageToChat('user', message);
+    
+    // Add loading indicator
+    addMessageToChat('assistant', 'Thinking...', true);
+    
+    // Send to backend (if available)
+    if (typeof sendMessageToAI === 'function') {
+        sendMessageToAI(message);
+    } else {
+        // Fallback response
+        setTimeout(() => {
+            removeLoadingMessage();
+            addMessageToChat('assistant', 'AI assistant is not fully configured yet. Please ensure your API keys are set up correctly.');
+        }, 1000);
+    }
+}
+
+// Add message to chat
+function addMessageToChat(sender, message, isLoading = false) {
+    const chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    // Remove welcome message if it exists
+    const welcomeMsg = chatContainer.querySelector('.ai-welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${sender}-message ${isLoading ? 'loading' : ''}`;
+    messageDiv.style.cssText = `
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.4;
+        max-width: 80%;
+        word-wrap: break-word;
+        ${sender === 'user' 
+            ? 'background: #667eea; color: white; margin-left: auto; text-align: right;' 
+            : 'background: #f5f5f5; color: #333; margin-right: auto;'
+        }
+        ${isLoading ? 'opacity: 0.7; font-style: italic;' : ''}
+    `;
+    
+    messageDiv.textContent = message;
+    chatContainer.appendChild(messageDiv);
+    
+    // Scroll to bottom
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// Remove loading message
+function removeLoadingMessage() {
+    const chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    const loadingMsg = chatContainer.querySelector('.loading');
+    if (loadingMsg) {
+        loadingMsg.remove();
+    }
+}
 
 // Generate unique ID
 function generateId() {

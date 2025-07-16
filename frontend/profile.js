@@ -138,7 +138,7 @@ async function loadUserProfile() {
     try {
         // Try to load from backend first
         if (currentUser) {
-            const response = await fetch(`${API_BASE_URL}/profile`, {
+            const response = await fetch(`${API_BASE_URL}/getProfile`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${currentUser.token}`,

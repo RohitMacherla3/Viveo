@@ -147,13 +147,21 @@ async function logFood() {
     }
 }
 
-// Load today's food entries from the backend
-async function loadTodaysFoodEntries() {
-    if (!currentUser) return;
+// Load food entries for a specific date from the backend
+async function loadFoodEntriesForDate(dateString = null) {
+    if (!currentUser) {
+        debugLog('No user logged in, skipping food entries load');
+        return;
+    }
+    
+    // Use provided date or default to today
+    const targetDate = dateString || getCurrentDateString();
     
     try {
-        const today = getCurrentDateString();
-        const requestUrl = `${API_BASE_URL}/getFoodEntries?date_str=${encodeURIComponent(today)}`;
+        // Use the correct endpoint format: /getFoodEntries?date_str=YYYY-MM-DD
+        const requestUrl = `${API_BASE_URL}/getFoodEntries?date_str=${encodeURIComponent(targetDate)}`;
+        
+        debugLog('Loading food entries for date:', targetDate, 'from:', requestUrl);
 
         const response = await fetch(requestUrl, {
             method: 'GET',
@@ -163,33 +171,134 @@ async function loadTodaysFoodEntries() {
             }
         });
 
+        debugLog('Food entries response status:', response.status);
+
         if (response.ok) {
             const data = await response.json();
-            debugLog('Loaded existing food entries:', data);
+            debugLog('Loaded food entries data:', data);
             
-            // Convert backend entries to frontend format
-            foodEntries = data.entries.map(entry => ({
-                id: entry.entry_id || generateId(),
-                text: entry.food_name || entry.original_text,
-                calories: Number(entry.calories) || 0,
-                protein: Number(entry.protein) || 0,
-                carbs: Number(entry.carbs) || 0,
-                fat: Number(entry.fats) || 0,
-                fiber: Number(entry.fiber) || 0,
-                quantity: entry.quantity || '',
-                food_review: entry.food_review || '',
-                meal_type: entry.meal_type || 'unknown',
-                timestamp: new Date(entry.timestamp)
-            }));
+            // Check if we have entries in the response
+            if (data.entries && Array.isArray(data.entries)) {
+                // Convert backend entries to frontend format
+                foodEntries = data.entries.map(entry => ({
+                    id: entry.entry_id || generateId(),
+                    text: entry.food_name || entry.original_text || 'Unknown food',
+                    calories: Number(entry.calories) || 0,
+                    protein: Number(entry.protein) || 0,
+                    carbs: Number(entry.carbs) || 0,
+                    fat: Number(entry.fats) || 0, // Backend uses 'fats'
+                    fiber: Number(entry.fiber) || 0,
+                    quantity: entry.quantity || '',
+                    food_review: entry.food_review || '',
+                    meal_type: entry.meal_type || 'unknown',
+                    timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date()
+                }));
+                
+                debugLog(`Loaded ${foodEntries.length} food entries for ${targetDate}`);
+                
+                // Update UI
+                updateFoodEntries();
+                updateCalorieData();
+                
+                // Show success message if entries were loaded
+                if (foodEntries.length > 0) {
+                    showFoodLogMessage(`Loaded ${foodEntries.length} food entries for ${targetDate}`, 'success');
+                }
+            } else {
+                // No entries for this date
+                debugLog('No food entries found for date:', targetDate);
+                foodEntries = [];
+                updateFoodEntries();
+                updateCalorieData();
+            }
+        } else {
+            // Handle error response
+            let errorMessage = 'Failed to load food entries';
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.detail || errorMessage;
+                debugLog('API error loading food entries:', errorData);
+            } catch (e) {
+                const errorText = await response.text();
+                errorMessage = errorText || errorMessage;
+                debugLog('API error loading food entries (text):', errorText);
+            }
             
-            // Update UI
+            console.error('Error loading food entries:', errorMessage);
+            showFoodLogMessage(errorMessage, 'error');
+            
+            // Clear entries on error
+            foodEntries = [];
             updateFoodEntries();
             updateCalorieData();
         }
     } catch (error) {
-        debugLog('Could not load existing food entries:', error);
-        // Load sample data for demo
-        loadSampleFoodData();
+        debugLog('Network error loading food entries:', error);
+        console.error('Could not load food entries:', error);
+        
+        // Check if this is a completely new user or just a network issue
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            showFoodLogMessage('Network error - using offline mode', 'error');
+            // Load sample data for demo if it's a network issue
+            loadSampleFoodData();
+        } else {
+            // Clear entries for other errors
+            foodEntries = [];
+            updateFoodEntries();
+            updateCalorieData();
+        }
+    }
+}
+
+// Load today's food entries (wrapper for backward compatibility)
+async function loadTodaysFoodEntries() {
+    const today = getCurrentDateString();
+    debugLog('Loading today\'s food entries for:', today);
+    await loadFoodEntriesForDate(today);
+}
+
+// Load food entries for a different date (for calendar navigation)
+async function loadFoodEntriesForSelectedDate(dateString) {
+    debugLog('Loading food entries for selected date:', dateString);
+    
+    // Update current date context
+    currentDate = new Date(dateString);
+    
+    // Load entries for the selected date
+    await loadFoodEntriesForDate(dateString);
+    
+    // Update any date displays in the UI
+    updateDateDisplay(dateString);
+}
+
+// Update date display in the UI
+function updateDateDisplay(dateString) {
+    const dateDisplayElements = document.querySelectorAll('.current-date-display');
+    dateDisplayElements.forEach(element => {
+        const date = new Date(dateString);
+        const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        };
+        element.textContent = date.toLocaleDateString('en-US', options);
+    });
+    
+    // Update any calendar highlights
+    updateCalendarHighlight(dateString);
+}
+
+// Update calendar highlight (if calendar exists)
+function updateCalendarHighlight(dateString) {
+    // Remove existing highlights
+    const existingHighlights = document.querySelectorAll('.calendar-day.selected');
+    existingHighlights.forEach(day => day.classList.remove('selected'));
+    
+    // Add highlight to selected date
+    const dayElement = document.querySelector(`[data-date="${dateString}"]`);
+    if (dayElement) {
+        dayElement.classList.add('selected');
     }
 }
 
@@ -230,7 +339,7 @@ function updateFoodEntries() {
     if (foodEntries.length === 0) {
         container.innerHTML = `
             <div class="food-entry" style="text-align: center; color: #666;">
-                <p>No food entries for today yet. Start by logging what you ate!</p>
+                <p>No food entries for this date yet. Start by logging what you ate!</p>
             </div>
         `;
         return;
@@ -279,7 +388,7 @@ async function clearAllFoodEntries() {
         return;
     }
 
-    const confirmClear = confirm(`Are you sure you want to delete all ${foodEntries.length} food entries for today? This action cannot be undone.`);
+    const confirmClear = confirm(`Are you sure you want to delete all ${foodEntries.length} food entries for this date? This action cannot be undone.`);
     
     if (!confirmClear) {
         return;
@@ -556,7 +665,7 @@ function loadSampleFoodData() {
 // Create food context for AI
 function createFoodContextForAI() {
     if (!foodEntries || foodEntries.length === 0) {
-        return "No food entries logged for today yet.";
+        return "No food entries logged for this date yet.";
     }
 
     const totalCalories = foodEntries.reduce((sum, entry) => sum + (Number(entry.calories) || 0), 0);
@@ -565,7 +674,7 @@ function createFoodContextForAI() {
     const totalFat = foodEntries.reduce((sum, entry) => sum + (Number(entry.fat) || 0), 0);
     const totalFiber = foodEntries.reduce((sum, entry) => sum + (Number(entry.fiber) || 0), 0);
 
-    let context = `Today's Food Log Summary:
+    let context = `Food Log Summary:
 Total Calories: ${totalCalories}
 Total Protein: ${totalProtein.toFixed(1)}g
 Total Carbs: ${totalCarbs.toFixed(1)}g

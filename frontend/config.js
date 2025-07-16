@@ -1,7 +1,18 @@
 // config.js - Application Configuration
 
 // API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+function getApiBaseUrl() {
+    // Check if we're in Docker (nginx will be handling routing)
+    if (window.location.port === '8080') {
+        // Running through nginx reverse proxy (Docker)
+        return window.location.origin + '/viveo/api';
+    }
+    
+    // Running locally - check if backend is on 8000 or 8001
+    return 'http://localhost:8000';
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 // App State
 let currentUser = null;

@@ -1,23 +1,10 @@
 {
   "name": "viveo-frontend",
   "version": "1.0.0",
-  "description": "Viveo Calorie Tracking Frontend",
-  "main": "index.html",
+  "description": "Viveo Frontend Application",
   "scripts": {
-    "start": "serve -s . -l 3000",
-    "serve": "serve -s . -l 3000",
-    "build": "echo 'Static files ready'",
-    "dev": "serve -s . -l 3000"
+    "start": "serve -s . -l 3000"
   },
-  "dependencies": {
-    "serve": "^14.2.1"
-  },
-  "keywords": [
-    "nutrition",
-    "calorie-tracking",
-    "health",
-    "frontend"
-  ],
-  "author": "Rohit Macherla",
-  "license": "MIT"
+  "dependencies": {},
+  "devDependencies": {}
 }
