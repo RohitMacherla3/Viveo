@@ -128,7 +128,7 @@ Navigate to the deployment directory and run the deployment script:
 
 ```bash
 # Go to deployment folder
-cd deployment
+cd deployments
 
 # Make script executable
 chmod +x deploy.sh

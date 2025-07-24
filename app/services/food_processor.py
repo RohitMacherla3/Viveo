@@ -1,17 +1,20 @@
-import anthropic
+from openai import OpenAI
 from typing import Dict, Any
 import json
 import logging
 from app.settings import settings
+from app import config
 
 logger = logging.getLogger(__name__)
+
+AI_MODEL = config.SELECTED_AI_MODEL
 
 class FoodProcessor:
     """Service to process natural language food descriptions into structured data"""
     
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
-    
+        self.client = OpenAI(api_key=settings.OPEN_AI_API_KEY)
+
     def process_food_description(self, food_text: str) -> Dict[str, Any]:
         """Convert natural language food description to structured data"""
         
@@ -48,18 +51,16 @@ class FoodProcessor:
             # Create user message without f-string
             user_message = "Convert this food description to structured JSON: " + food_text
             
-            message = self.client.messages.create(
-                model="claude-3-5-haiku-20241022",
-                max_tokens=500,
-                temperature=0.1,
-                system=system_prompt,
-                messages=[{
-                    "role": "user",
-                    "content": user_message
-                }]
+            response = self.client.chat.completions.create(
+                model=AI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.2
             )
             
-            response_text = message.content[0].text.strip()
+            response_text = response.choices[0].message.content.strip()
             logger.info(f"AI response for food processing: {response_text}")
             
             # Clean up response if it has markdown formatting

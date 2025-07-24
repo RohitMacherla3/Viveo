@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 import logging
-import openai
+from openai import OpenAI
 from app.settings import settings
 from app.config import AI_GLOBAL_CACHE
 from app.services.rag_service import RAGService
@@ -10,13 +10,13 @@ logger = logging.getLogger("AIClient")
 
 class AIClient:
     """Enhanced AI client with RAG capabilities"""
-    
+
     def __init__(self, ai_client: str, ai_model: str, user: str, cache_key=None):
         self.ai_client = ai_client
         self.ai_model = ai_model
         self.user = user
         self.cache = ConversationManager(user, cache_key=cache_key)
-        self.client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.client = OpenAI(api_key=settings.OPEN_AI_API_KEY)
         self.rag_service = RAGService()
         
         if not self.ai_client or not self.ai_model:
@@ -24,7 +24,7 @@ class AIClient:
 
     def get_ai_response(self, query: str):
         """Get AI response with RAG capabilities"""
-        if not settings.OPENAI_API_KEY:
+        if not settings.OPEN_AI_API_KEY:
             raise HTTPException(
                 status_code=500,
                 detail="OpenAI API key is not set in the environment variables.",
