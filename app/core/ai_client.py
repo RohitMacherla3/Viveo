@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 import logging
-import anthropic
+import openai
 from app.settings import settings
 from app.config import AI_GLOBAL_CACHE
 from app.services.rag_service import RAGService
@@ -16,7 +16,7 @@ class AIClient:
         self.ai_model = ai_model
         self.user = user
         self.cache = ConversationManager(user, cache_key=cache_key)
-        self.client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
+        self.client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         self.rag_service = RAGService()
         
         if not self.ai_client or not self.ai_model:
@@ -24,10 +24,10 @@ class AIClient:
 
     def get_ai_response(self, query: str):
         """Get AI response with RAG capabilities"""
-        if not settings.CLAUDE_API_KEY:
+        if not settings.OPENAI_API_KEY:
             raise HTTPException(
                 status_code=500,
-                detail="Claude API key is not set in the environment variables.",
+                detail="OpenAI API key is not set in the environment variables.",
             )
 
         # Check if this is a food history query
@@ -36,38 +36,55 @@ class AIClient:
             food_context = self.rag_service.query_food_history(self.user, query)
             logger.info(f"Retrieved food context for user {self.user}: {len(food_context)} characters")
 
-        # Prepare content
-        content = [{"type": "text", "text": query}]
-        
-        # Get conversation history
+        # Get conversation history and convert to OpenAI format
         conversation_history = self.cache.get_conversation_history()
-        conversation_history.append({"role": "user", "content": content})
         
-        # Enhanced system prompt with RAG context
+        # Convert messages to OpenAI format
+        openai_messages = []
+        
+        # Add system message
         system_prompt = self._get_system_prompt_with_context(food_context)
+        openai_messages.append({"role": "system", "content": system_prompt})
         
-        logger.info(f"Conversation history length: {len(conversation_history)}")
+        # Add conversation history
+        for message in conversation_history:
+            role = message["role"]
+            content = message["content"]
+            
+            # Handle content format - extract text from Anthropic format if needed
+            if isinstance(content, list) and len(content) > 0 and "text" in content[0]:
+                text_content = content[0]["text"]
+            elif isinstance(content, str):
+                text_content = content
+            else:
+                text_content = str(content)
+            
+            openai_messages.append({"role": role, "content": text_content})
+        
+        # Add current user message
+        openai_messages.append({"role": "user", "content": query})
+        
+        logger.info(f"Conversation history length: {len(openai_messages)}")
 
         try:
-            message = self.client.messages.create(
+            response = self.client.chat.completions.create(
                 model=self.ai_model,
+                messages=openai_messages,
                 max_tokens=1000,
-                temperature=0.7,
-                system=system_prompt,
-                messages=conversation_history
+                temperature=0.7
             )
             
-            ai_response = message.content
+            ai_response = response.choices[0].message.content
             
-            # Cache the conversation
+            # Cache the conversation in Anthropic format for compatibility
             self.cache.add_message(
                 messages=[
-                    {"role": "user", "content": content},
+                    {"role": "user", "content": [{"type": "text", "text": query}]},
                     {"role": "assistant", "content": ai_response}
                 ]
             )
             
-            return ai_response[0].text if ai_response else "No response from AI."
+            return ai_response if ai_response else "No response from AI."
             
         except Exception as e:
             logger.error(f"Error getting AI response: {e}")
