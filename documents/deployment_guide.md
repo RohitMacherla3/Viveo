@@ -5,7 +5,7 @@ A nutrition tracking application with AI-powered food logging, supporting both d
 ## 🚀 Quick Start
 
 ### mac testing
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
+uvicorn app.main:app --host 0.0.0.0 --port 3334 --reload --log-level info
 
 serve .
 
@@ -19,23 +19,33 @@ cd viveo
 chmod +x deploy.sh
 
 # Start in development mode
-./deploy.sh --mode dev --claude-key sk-your-api-key-here
+./deploy.sh --mode dev
 
 # Access the application
-open http://localhost:8080/viveo/
+open http://localhost:3336/viveo/
 ```
 
-### Production Mode (Proxmox Server)
+### Server Deployment
+1. Send files to server using Rsync on local
 ```bash
-# 1. Install Docker on your server (run as root)
-sudo ./install-docker.sh
+rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-dev/
 
-# 2. Deploy in production mode
-./deploy.sh --mode prod --domain your-domain.com --ssl --claude-key sk-your-api-key-here
+rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-prod/
+```
+
+2. Run the build
+```bash
+cd deployments/
+chmod +x deploy.sh
+# Deploy in production mode using screen
+screen -S viveo
+./deploy.sh --mode prod
+# ./deploy.sh --mode prod --domain your-domain.com --ssl --claude-key sk-your-api-key-here
 
 # Access the application
 https://your-domain.com/viveo/
 ```
+
 
 ## 📁 Project Structure
 
@@ -129,10 +139,10 @@ Key variables:
 ## 🌐 Network Configuration
 
 ### Development Mode
-- Frontend: `http://localhost:8080/viveo/`
-- API: `http://localhost:8080/viveo/api/`
-- Health: `http://localhost:8080/viveo/health`
-- Database: `localhost:3307`
+- Frontend: `http://localhost:3336/viveo/`
+- API: `http://localhost:3336/viveo/api/`
+- Health: `http://localhost:3336/viveo/health`
+- Database: `localhost:3335`
 
 ### Production Mode
 - Frontend: `http(s)://your-domain.com/viveo/`
@@ -227,7 +237,7 @@ Key variables:
    ```
 
 ### Health Checks
-- Backend: `curl http://localhost:8080/viveo/health`
+- Backend: `curl http://localhost:8000/viveo/health`
 - Frontend: `curl http://localhost:8080/viveo/`
 - Database: `./deploy.sh logs mysql`
 

@@ -149,11 +149,11 @@ chmod +x deploy.sh
 ### 5. Access Application
 
 **Development Mode:**
-- **Frontend**: http://localhost:8080/viveo/
-- **API**: http://localhost:8080/viveo/api/
-- **Health Check**: http://localhost:8080/viveo/health
-- **Direct Backend**: http://localhost:8001
-- **Direct Frontend**: http://localhost:3001
+- **Frontend**: http://localhost:3336/viveo/
+- **API**: http://localhost:3336/viveo/api/
+- **Health Check**: http://localhost:3336/viveo/health
+- **Direct Backend**: http://localhost:3334
+- **Direct Frontend**: http://localhost:3333
 
 **Production Mode:**
 - **Frontend**: http://your-domain/viveo/
@@ -253,11 +253,11 @@ docker-compose -f docker-compose.prod.yml exec -T mysql mysql -u root -p viveo_d
 3. **Firewall Setup**
    ```bash
    # Allow only necessary ports
-   ufw allow 80
-   ufw allow 443
-   ufw deny 3000    # Block direct frontend access
-   ufw deny 8000    # Block direct backend access
-   ufw deny 3306    # Block direct database access
+   ufw allow 3336  # Frontend
+   ufw allow 8443  # HTTPS
+   ufw deny 3333   # Block direct frontend access
+   ufw deny 3334   # Block direct backend access
+   ufw deny 3335   # Block direct database access
    ```
 
 4. **Database Security**
@@ -335,7 +335,7 @@ MYSQL_PASSWORD=secure-user-password
    docker exec viveo-backend env | grep -E "(CLAUDE_API_KEY|OPENAI_API_KEY)"
    
    # Test health endpoint
-   curl http://localhost:8080/viveo/health
+   curl http://localhost:3336/viveo/health
    ```
 
 5. **Frontend Not Loading**
@@ -355,11 +355,9 @@ MYSQL_PASSWORD=secure-user-password
 If you get port conflicts:
 
 ```bash
-# Check what's using ports
-sudo netstat -tulpn | grep :8080
-sudo netstat -tulpn | grep :3306
-
-# Stop conflicting services
+   # Check what's using ports
+   sudo netstat -tulpn | grep :3336
+   sudo netstat -tulpn | grep :3335# Stop conflicting services
 sudo systemctl stop apache2  # If Apache is running
 sudo systemctl stop mysql    # If MySQL is running locally
 ```
@@ -373,7 +371,7 @@ sudo systemctl stop mysql    # If MySQL is running locally
 ./deploy.sh status
 
 # Test API health
-curl http://localhost:8080/viveo/health
+curl http://localhost:3336/viveo/health
 
 # Monitor resource usage
 docker stats viveo-backend viveo-frontend viveo-mysql

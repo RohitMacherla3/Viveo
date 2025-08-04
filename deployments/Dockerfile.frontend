@@ -68,15 +68,14 @@ function debugLog(message, data = null) {
 }
 EOF
 
-# Expose port
-EXPOSE 3000
+EXPOSE 3333
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000 || exit 1
+    CMD curl -f http://localhost:3333 || exit 1
 
 # Development command - serve with hot reload capability
-CMD ["serve", "-s", ".", "-l", "3000", "--cors"]
+CMD ["serve", "-s", ".", "-l", "3333", "--cors"]
 
 # Production stage
 FROM base AS production
@@ -153,11 +152,11 @@ RUN addgroup -g 1001 -S nodejs && \
 USER nextjs
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3333
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000 || exit 1
+    CMD curl -f http://localhost:3333 || exit 1
 
 # Production command - optimized serve with security headers
-CMD ["serve", "-s", ".", "-l", "3000", "--no-clipboard", "--no-port-switching"]
+CMD ["serve", "-s", ".", "-l", "3333", "--no-clipboard", "--no-port-switching"]
