@@ -25,19 +25,19 @@ chmod +x deploy.sh
 open http://localhost:3336/viveo/
 ```
 
-### Production Deployment
+### Server Deployment
 1. Send files to server using Rsync on local
 ```bash
 rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-dev/
+
+rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-prod/
 ```
 
 2. Run the build
 ```bash
-# 1. Install Docker on your server (run as root)
-chmod +x install-docker.sh
-sudo bash install_docker.sh
-
-# 2. Deploy in production mode using screen
+cd deployments/
+chmod +x deploy.sh
+# Deploy in production mode using screen
 screen -S viveo
 ./deploy.sh --mode prod
 # ./deploy.sh --mode prod --domain your-domain.com --ssl --claude-key sk-your-api-key-here

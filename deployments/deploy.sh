@@ -109,6 +109,7 @@ set_config() {
             DEBUG_MODE="false"
             ENV_FILE="$PROJECT_ROOT/app/.env"
             DOCKER_TARGET="production"
+            BUILD_TARGET="production"
             log "🚀 Production Server Mode"
             ;;
         *)
@@ -155,7 +156,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.backend
-      target: ${MODE}elopment
+      target: ${BUILD_TARGET:-development}
     container_name: viveo-backend${CONTAINER_SUFFIX}
     restart: unless-stopped
     env_file:

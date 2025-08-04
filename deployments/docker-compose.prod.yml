@@ -1,0 +1,96 @@
+# Docker Compose configuration for Viveo prod environment
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: viveo-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-viveo_root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-viveo_db}
+      MYSQL_USER: ${MYSQL_USER:-viveo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-viveo_password}
+    ports:
+      - "3335:3335"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - viveo-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.backend
+      target: production
+    container_name: viveo-backend
+    restart: unless-stopped
+    env_file:
+      - /Users/rohitmacherla/Documents/Projects/viveo-dev/app/.env
+    environment:
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-viveo_user}:${MYSQL_PASSWORD:-viveo_password}@mysql:3306/${MYSQL_DATABASE:-viveo_db}
+      - PYTHONPATH=/app
+      - MODE=prod
+    ports:
+      - "3334:3334"
+    volumes:
+      - ../data:/app/data
+      - backend_logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - viveo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3334/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../deployments/Dockerfile.frontend
+      target: production
+      args:
+        - API_BASE_URL=/viveo/api
+    container_name: viveo-frontend
+    restart: unless-stopped
+    environment:
+      - MODE=prod
+      - API_BASE_URL=/viveo/api
+    ports:
+      - "3333:3333"
+    depends_on:
+      - backend
+    networks:
+      - viveo-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: viveo-nginx
+    restart: unless-stopped
+    ports:
+      - "3336:3336"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - viveo-network
+
+volumes:
+  mysql_data:
+  backend_logs:
+
+networks:
+  viveo-network:
+    driver: bridge
