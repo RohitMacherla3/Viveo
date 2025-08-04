@@ -1,5 +1,4 @@
-version: '3.8'
-
+# Docker Compose configuration for Viveo dev environment
 services:
   # MySQL Database
   mysql:
@@ -12,7 +11,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-viveo_user}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-viveo_password}
     ports:
-      - "3307:3306"
+      - "3335:3335"
     volumes:
       - mysql_data-dev:/var/lib/mysql
       - ../mysql/init:/docker-entrypoint-initdb.d
@@ -38,7 +37,7 @@ services:
       - PYTHONPATH=/app
       - MODE=dev
     ports:
-      - "8001:8000"
+      - "3334:3334"
     volumes:
       - ../data:/app/data
       - backend_logs-dev:/app/logs
@@ -49,7 +48,7 @@ services:
     networks:
       - viveo-network-dev
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3334/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -68,7 +67,7 @@ services:
       - MODE=dev
       - API_BASE_URL=/viveo/api
     ports:
-      - "3001:3000"
+      - "3333:3333"
     volumes:
       - ../frontend:/app:ro  # Mount source for development
     depends_on:
@@ -82,7 +81,7 @@ services:
     container_name: viveo-nginx-dev
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "3336:3336"
     volumes:
       - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf
     depends_on:

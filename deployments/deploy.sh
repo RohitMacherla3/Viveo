@@ -88,10 +88,10 @@ set_config() {
         "dev")
             COMPOSE_FILE="$SCRIPT_DIR/docker-compose.dev.yml"
             CONTAINER_SUFFIX="-dev"
-            FRONTEND_PORT="3001"
-            BACKEND_PORT="8001"
-            MYSQL_PORT="3307"
-            NGINX_HTTP_PORT="8080"
+            FRONTEND_PORT="3333"
+            BACKEND_PORT="3334"
+            MYSQL_PORT="3335"
+            NGINX_HTTP_PORT="3336"
             NGINX_HTTPS_PORT="8443"
             DEBUG_MODE="true"
             ENV_FILE="$PROJECT_ROOT/app/.env"
@@ -101,11 +101,11 @@ set_config() {
         "prod")
             COMPOSE_FILE="$SCRIPT_DIR/docker-compose.prod.yml"
             CONTAINER_SUFFIX=""
-            FRONTEND_PORT="3000"
-            BACKEND_PORT="8000"
-            MYSQL_PORT="3306"
-            NGINX_HTTP_PORT="80"
-            NGINX_HTTPS_PORT="443"
+            FRONTEND_PORT="3333"
+            BACKEND_PORT="3334"
+            MYSQL_PORT="3335"
+            NGINX_HTTP_PORT="3336"
+            NGINX_HTTPS_PORT="8443"
             DEBUG_MODE="false"
             ENV_FILE="$PROJECT_ROOT/app/.env"
             DOCKER_TARGET="production"
@@ -126,8 +126,7 @@ generate_compose_file() {
     log "Generating $COMPOSE_FILE..."
     
     cat > $COMPOSE_FILE << EOF
-version: '3.8'
-
+# Docker Compose configuration for Viveo ${MODE} environment
 services:
   # MySQL Database
   mysql:
@@ -140,7 +139,7 @@ services:
       MYSQL_USER: \${MYSQL_USER:-viveo_user}
       MYSQL_PASSWORD: \${MYSQL_PASSWORD:-viveo_password}
     ports:
-      - "${MYSQL_PORT}:3306"
+      - "${MYSQL_PORT}:3335"
     volumes:
       - mysql_data${CONTAINER_SUFFIX}:/var/lib/mysql
       - ../mysql/init:/docker-entrypoint-initdb.d
@@ -166,7 +165,7 @@ services:
       - PYTHONPATH=/app
       - MODE=${MODE}
     ports:
-      - "${BACKEND_PORT}:8000"
+      - "${BACKEND_PORT}:3334"
     volumes:
       - ../data:/app/data
       - backend_logs${CONTAINER_SUFFIX}:/app/logs
@@ -186,7 +185,7 @@ EOF
     networks:
       - viveo-network${CONTAINER_SUFFIX}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3334/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -205,7 +204,7 @@ EOF
       - MODE=${MODE}
       - API_BASE_URL=${UI_PATH}/api
     ports:
-      - "${FRONTEND_PORT}:3000"
+      - "${FRONTEND_PORT}:3333"
 EOF
 
     # Add volume mounts for dev mode only
@@ -228,7 +227,7 @@ EOF
     container_name: viveo-nginx${CONTAINER_SUFFIX}
     restart: unless-stopped
     ports:
-      - "${NGINX_HTTP_PORT}:80"
+      - "${NGINX_HTTP_PORT}:3336"
 EOF
 
     if [[ "$SSL_ENABLED" == true ]]; then
@@ -318,16 +317,16 @@ http {
 
     # Upstream servers
     upstream backend {
-        server viveo-backend${CONTAINER_SUFFIX}:8000;
+        server viveo-backend${CONTAINER_SUFFIX}:3334;
     }
 
     upstream frontend {
-        server viveo-frontend${CONTAINER_SUFFIX}:3000;
+        server viveo-frontend${CONTAINER_SUFFIX}:3333;
     }
 
     # Main server block
     server {
-        listen 80;
+        listen 3336;
         server_name ${DOMAIN};
         client_max_body_size 10M;
 
@@ -603,8 +602,16 @@ check_services() {
 show_logs() {
     local service=${1:-}
     cd "$SCRIPT_DIR"
+    
+    # Check if service argument is actually a valid service name
     if [[ -n "$service" ]]; then
-        docker-compose -f "$COMPOSE_FILE" logs -f $service
+        if [[ "$service" == "mysql" || "$service" == "backend" || "$service" == "frontend" || "$service" == "nginx" ]]; then
+            docker-compose -f "$COMPOSE_FILE" logs -f "$service"
+        else
+            error "Invalid service: $service"
+            log "Valid services are: mysql, backend, frontend, nginx"
+            exit 1
+        fi
     else
         docker-compose -f "$COMPOSE_FILE" logs -f
     fi
@@ -717,8 +724,16 @@ parse_args() {
                 ;;
             logs)
                 COMMAND="logs"
-                LOG_SERVICE="$2"
-                shift 2
+                # Only use next argument as service if it's not another command
+                case "$2" in
+                    start|stop|restart|logs|status|update|cleanup|backup|"")
+                        shift
+                        ;;
+                    *)
+                        LOG_SERVICE="$2"
+                        shift 2
+                        ;;
+                esac
                 ;;
             status)
                 COMMAND="status"

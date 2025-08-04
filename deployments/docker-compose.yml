@@ -10,10 +10,10 @@ services:
       MYSQL_USER: ${MYSQL_USER:-viveo_user}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-viveo_password}
     ports:
-      - "3306:3306"
+      - "3335:3335"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ../mysql/init:/docker-entrypoint-initdb.d  # Fixed: relative to deployment folder
+      - ../mysql/init:/docker-entrypoint-initdb.d
     networks:
       - viveo-network
     healthcheck:
@@ -35,7 +35,7 @@ services:
       - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-viveo_user}:${MYSQL_PASSWORD:-viveo_password}@mysql:3306/${MYSQL_DATABASE:-viveo_db}
       - PYTHONPATH=/app
     ports:
-      - "8000:8000"
+      - "3334:3334"
     volumes:
       - ../data:/app/data           # Fixed: relative path
       - backend_logs:/app/logs
@@ -45,7 +45,7 @@ services:
     networks:
       - viveo-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3334/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -64,7 +64,7 @@ services:
       - MODE=production
       - API_BASE_URL=/viveo/api
     ports:
-      - "3000:3000"
+      - "3333:3333"
     depends_on:
       - backend
     networks:
@@ -76,8 +76,7 @@ services:
     container_name: viveo-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "3336:3336"
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf  # Fixed: specific config file
       - ./nginx/ssl:/etc/nginx/ssl
