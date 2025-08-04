@@ -100,7 +100,7 @@ set_config() {
             ;;
         "prod")
             COMPOSE_FILE="$SCRIPT_DIR/docker-compose.prod.yml"
-            CONTAINER_SUFFIX=""
+            CONTAINER_SUFFIX="-prod"
             FRONTEND_PORT="3333"
             BACKEND_PORT="3334"
             MYSQL_PORT="3335"
@@ -165,11 +165,15 @@ services:
       - DATABASE_URL=mysql+pymysql://\${MYSQL_USER:-viveo_user}:\${MYSQL_PASSWORD:-viveo_password}@mysql:3306/\${MYSQL_DATABASE:-viveo_db}
       - PYTHONPATH=/app
       - MODE=${MODE}
+      - USER_UID=\${USER_UID:-1000}
+      - USER_GID=\${USER_GID:-1000}
     ports:
       - "${BACKEND_PORT}:3334"
     volumes:
       - ../data:/app/data
+      - ../app/database:/app/database
       - backend_logs${CONTAINER_SUFFIX}:/app/logs
+    user: "${UID:-1000}:${GID:-1000}"  # Use host user's UID/GID or default to 1000
 EOF
 
     # Add volume mounts for dev mode only
@@ -513,10 +517,16 @@ setup_environment() {
     log "Setting up environment..."
     
     # Create necessary directories relative to project root
-    mkdir -p "$PROJECT_ROOT/data/{users,vectors}" "$PROJECT_ROOT/logs" "$SCRIPT_DIR/nginx/ssl" "$PROJECT_ROOT/mysql/init" "$PROJECT_ROOT/frontend"
+    mkdir -p "$PROJECT_ROOT/data/users" "$PROJECT_ROOT/data/vectors" "$PROJECT_ROOT/logs" "$SCRIPT_DIR/nginx/ssl" "$PROJECT_ROOT/mysql/init" "$PROJECT_ROOT/frontend" "$PROJECT_ROOT/app/database"
     
-    # Set proper permissions
-    chmod 755 "$PROJECT_ROOT/data" "$PROJECT_ROOT/logs" 2>/dev/null || true
+    # Set proper permissions (777 for development to ensure write access)
+    chmod -R 777 "$PROJECT_ROOT/data" "$PROJECT_ROOT/logs" "$PROJECT_ROOT/app/database" 2>/dev/null || true
+    chown -R $(id -u):$(id -g) "$PROJECT_ROOT/data" "$PROJECT_ROOT/logs" "$PROJECT_ROOT/app/database" 2>/dev/null || true
+    
+    # Ensure SQLite database exists and has proper permissions
+    touch "$PROJECT_ROOT/app/database/users.db"
+    chmod 666 "$PROJECT_ROOT/app/database/users.db"
+    chown $(id -u):$(id -g) "$PROJECT_ROOT/app/database/users.db" 2>/dev/null || true
     
     # Generate SSL certificates for development if needed
     if [[ "$SSL_ENABLED" == true ]] && [[ ! -f "$SCRIPT_DIR/nginx/ssl/cert.pem" ]]; then
