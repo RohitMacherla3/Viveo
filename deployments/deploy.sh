@@ -516,7 +516,7 @@ check_env_files() {
 setup_environment() {
     log "Setting up environment..."
     
-    # Create necessary directories relative to project root
+    # Create necessary directories in project root
     mkdir -p "$PROJECT_ROOT/data/users" "$PROJECT_ROOT/data/vectors" "$PROJECT_ROOT/logs" "$SCRIPT_DIR/nginx/ssl" "$PROJECT_ROOT/mysql/init" "$PROJECT_ROOT/frontend" "$PROJECT_ROOT/app/database"
     
     # Set proper permissions (777 for development to ensure write access)

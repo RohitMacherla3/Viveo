@@ -20,8 +20,11 @@ async function logFood() {
     logButton.disabled = true;
 
     try {
+        // Get the current selected date from the calendar
+        const selectedDate = currentDate.toISOString().split('T')[0];
+        
         // Build URL properly for relative paths - FIXED
-        const requestUrl = `${API_BASE_URL}/logFoodText?food_details=${encodeURIComponent(foodText)}`;
+        const requestUrl = `${API_BASE_URL}/logFoodText?food_details=${encodeURIComponent(foodText)}&date_str=${selectedDate}`;
 
         debugLog('Sending food log request to:', requestUrl);
 
@@ -52,7 +55,7 @@ async function logFood() {
                 quantity: structuredData.quantity || '',
                 food_review: structuredData.food_review || '',
                 meal_type: structuredData.meal_type || 'unknown',
-                timestamp: new Date()
+                timestamp: getESTDate()
             };
 
             debugLog('Created entry from food log endpoint:', newEntry);
@@ -147,6 +150,17 @@ async function logFood() {
     }
 }
 
+// Convert to EST timezone
+function getESTDate(date = new Date()) {
+    return new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+}
+
+// Get current date string in EST
+function getCurrentESTDateString() {
+    const estDate = getESTDate();
+    return estDate.toISOString().split('T')[0];
+}
+
 // Load food entries for a specific date from the backend
 async function loadFoodEntriesForDate(dateString = null) {
     if (!currentUser) {
@@ -154,8 +168,8 @@ async function loadFoodEntriesForDate(dateString = null) {
         return;
     }
     
-    // Use provided date or default to today
-    const targetDate = dateString || getCurrentDateString();
+    // Use provided date or default to today in EST
+    const targetDate = dateString || getCurrentESTDateString();
     
     try {
         // Use the correct endpoint format: /getFoodEntries?date_str=YYYY-MM-DD
@@ -252,7 +266,7 @@ async function loadFoodEntriesForDate(dateString = null) {
 
 // Load today's food entries (wrapper for backward compatibility)
 async function loadTodaysFoodEntries() {
-    const today = getCurrentDateString();
+    const today = getCurrentESTDateString();
     debugLog('Loading today\'s food entries for:', today);
     await loadFoodEntriesForDate(today);
 }

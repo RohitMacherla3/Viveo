@@ -7,10 +7,14 @@ from app.database.schemas import FoodEntryResponse
 from datetime import date, datetime
 import logging
 import asyncio
+from zoneinfo import ZoneInfo
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 authenticator = Authentication()
+
+# Set default timezone to EST
+DEFAULT_TIMEZONE = ZoneInfo("America/New_York")
 
 # Initialize services
 food_processor = None
@@ -63,6 +67,7 @@ def delete_from_vector_background(username: str, entry_id: str):
 async def log_food_text(
     background_tasks: BackgroundTasks,
     food_details: str = Query(None, description="Natural language food description"),
+    date_str: str = Query(None, description="Date in YYYY-MM-DD format"),
     token: str = Depends(oauth2_scheme)
 ):
     """Log food entry with immediate response and background vector storage"""
@@ -94,17 +99,24 @@ async def log_food_text(
         
         logger.info(f"Food processing result: {structured_food_data}")
         
-        # Generate entry_id immediately
-        entry_id = f"{user.username}_{date.today().strftime('%Y%m%d')}_{datetime.now().strftime('%H%M%S')}"
+        # Use provided date or default to current EST date
+        now_est = datetime.now(DEFAULT_TIMEZONE)
+        if date_str:
+            target_date = date.fromisoformat(date_str)
+        else:
+            target_date = now_est.date()
+
+        entry_id = f"{user.username}_{target_date.strftime('%Y%m%d')}_{now_est.strftime('%H%M%S')}"
         structured_food_data['entry_id'] = entry_id
-        structured_food_data['timestamp'] = datetime.now().isoformat()
+        structured_food_data['timestamp'] = now_est.isoformat()
+        structured_food_data['date'] = target_date.isoformat()
         
         # Add vector storage as background task (non-blocking)
         background_tasks.add_task(
             store_in_vector_background,
             user.username,
             structured_food_data.copy(),
-            date.today()
+            target_date
         )
         
         logger.info(f"Returning immediate response for user {user.username}: {structured_food_data.get('food_name', 'Unknown')}")

@@ -28,9 +28,9 @@ open http://localhost:3336/viveo/
 ### Server Deployment
 1. Send files to server using Rsync on local
 ```bash
-rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-dev/
+rsync -avz --exclude='data/' --exclude='app/database/users.db' -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-dev/
 
-rsync -avz -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-prod/
+rsync -avz --exclude='data/' --exclude='app/database/users.db' -e "ssh -p 1875" "/Users/rohitmacherla/Documents/Projects/viveo-dev/" rohit@192.168.1.199:/home/rohit/storage/applications/viveo-prod/
 ```
 
 2. Run the build

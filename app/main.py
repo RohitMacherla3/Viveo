@@ -2,6 +2,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
+import logging
+
+logger = logging.getLogger("Main")
 
 app = FastAPI(
     title="Viveo API",
